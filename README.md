@@ -36,6 +36,7 @@ The current service does not yet launch Playwright. Successful capture requests 
 - `CURRENT_STATE_SNAPSHOT.md` — current starting-line snapshot: files, implemented skeleton, tests, old runtime, commands, risks, and open questions.
 - `DECISIONS.md` — canonical decision log: approved decisions, pending human review, deferred revisits, and rejected approaches.
 - `ACCEPTANCE_TESTS.md` — phase-one acceptance checklist and evidence requirements.
+- `RISKS_AND_BUGS.md` — known risks/bugs/future issue checklist with severity, status, expected fixes, and evidence requirements.
 - `AGENT_HANDOFF.md` — instructions for the next agent.
 - `IMPLEMENTATION_NOTES.md` — recommended API, workflow, security, tests, and implementation order.
 - `IMPLEMENTATION_APPROACH.md` — brick-by-brick implementation guardrails: vertical slices, TDD, branch/commit discipline, milestone definition of done.
