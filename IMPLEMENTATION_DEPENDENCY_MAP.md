@@ -162,28 +162,26 @@ Potential later hardening:
 Completed:
 
 1. Safe direct-run binding default: `127.0.0.1` / port `3080`, with explicit `BROWSER_WORKER_HOST` override.
+2. Action naming/validation: `capturePage` is the accepted phase-one action and unknown actions return structured `invalid_action` errors.
 
 Next:
 
-1. Reconcile docs and action naming.
-2. Add/verify acceptance tests for current skeleton behavior.
-3. Add artifact root configuration and job directory writer.
-4. Persist request and response JSON.
-5. Add URL/private-network policy module with tests.
-6. Add Playwright dependency/runtime proof.
-7. Implement isolated `capturePage` navigation.
-8. Write screenshot artifact.
-9. Write HTML/text artifacts.
-10. Add structured extraction metadata/signals.
-11. Add cleanup/lifecycle verification.
-12. Add Docker runtime path.
-13. Add `storageState` mode.
-14. Add named persistent profile support only after explicit approval.
-15. Apply container hardening after acceptance tests pass.
+1. Add URL/private-network policy module with tests.
+2. Add artifact root configuration and job directory writer.
+3. Persist request and response JSON.
+4. Add Playwright dependency/runtime proof.
+5. Implement isolated `capturePage` navigation.
+6. Write screenshot artifact.
+7. Write HTML/text artifacts.
+8. Add structured extraction metadata/signals.
+9. Add cleanup/lifecycle verification.
+10. Add Docker runtime path.
+11. Add `storageState` mode.
+12. Add named persistent profile support only after explicit approval.
+13. Apply container hardening after acceptance tests pass.
 
 ## Blockers requiring Kristian input
 
-- Git author identity for commits from this environment.
 - Whether Docker runtime work should start immediately after local service proof or after browser capture proof.
 
 ## Resolved inputs from Kristian on 2026-06-27

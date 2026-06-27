@@ -95,12 +95,14 @@ The current rebuild has a minimal Node service skeleton:
   - failed envelope with normalized errors
 
 - `test/server.test.js`
+  - listen config defaults and overrides
   - invalid URL produces structured failure envelope
-  - capture request produces structured envelope
+  - `capturePage` request produces structured envelope
+  - unknown action produces structured `invalid_action` failure envelope
 
 ## Verified command output
 
-Command run from `/DATA/browser-stack` on 2026-06-27 after the localhost-binding slice:
+Command run from `/DATA/browser-stack` on 2026-06-27 after the action-validation slice:
 
 ```bash
 npm test
@@ -109,8 +111,8 @@ npm test
 Result:
 
 ```text
-# tests 6
-# pass 6
+# tests 7
+# pass 7
 # fail 0
 ```
 
@@ -232,7 +234,6 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 
 ## Current risk notes
 
-- Tests currently use `action: 'capture'`, while approved API naming is `capturePage`; this naming should be reconciled before freezing the API.
 - Private-network blocking is not implemented yet and must come before arbitrary browser navigation.
 - Browser execution is intentionally not connected yet; keep `browser_execution_not_yet_connected` visible until real capture works.
 - Decide whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.

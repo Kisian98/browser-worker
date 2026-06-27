@@ -20,7 +20,10 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `package.json` with `npm test` and `npm start` scripts.
 - `response-envelope.js` for a stable structured job response envelope.
 - `server.js` with `/health` and `POST /v1/browser/jobs`.
-- Node test-runner coverage for the envelope and service responses.
+- direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
+- `capturePage` as the accepted phase-one action.
+- structured `invalid_action` errors for unknown actions.
+- Node test-runner coverage for the envelope, service responses, listen config, and action validation.
 
 Known intended longer-term flow:
 
@@ -28,7 +31,7 @@ Known intended longer-term flow:
 host wrapper -> sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker -> node worker.js/server.js -> Playwright opens Chromium -> structured JSON job response
 ```
 
-The current service does not yet launch Playwright. Successful capture requests deliberately include `browser_execution_not_yet_connected` so callers do not mistake the skeleton envelope for real browser capture.
+The current service does not yet launch Playwright. Successful `capturePage` requests deliberately include `browser_execution_not_yet_connected` so callers do not mistake the skeleton envelope for real browser capture.
 
 ## Documentation map
 
@@ -48,33 +51,19 @@ The current service does not yet launch Playwright. Successful capture requests 
 - `TARGETED_RESEARCH_2026-06-27.md` — focused research on Playwright contexts/session state, Node SSRF/private-IP blocking, and traces/artifacts.
 - `agent-runs/browser-worker-prep/FINAL_SUMMARY.md` — summary of this prep run.
 
-## Hard rule
+## Implementation guardrails
 
-Do not edit runtime files until human approval:
+- Keep old `/opt/data/browser-stack` runtime files as fallback/reference until the replacement service passes acceptance tests.
+- Do not treat the old shell/demo runtime as the rebuild source of truth.
+- Keep implementation in small reviewed branches with tests and documentation updates.
+- Update the Projects Hub vault after every merged PR.
 
-- `worker.js`
-- `Dockerfile.worker`
-- `docker-compose.yml`
-- `browser-worker`
+## Next implementation step
 
-## Recommended target
+Build the URL/private-network policy module before any real browser navigation:
 
-A local HTTP JSON API with:
-
-- explicit job requests;
-- isolated sessions by default;
-- optional future storageState/session support;
-- deterministic artifact directories;
-- structured extraction suitable for AI agents;
-- bounded timeouts and partial-failure envelopes;
-- Docker/browser security hardening when changes are approved.
-
-## Next Human Review
-
-Before allowing implementation, review:
-
-1. Why the expected runtime files were not visible in this prep run.
-2. Whether the proposed API contract in `IMPLEMENTATION_NOTES.md` is acceptable.
-3. Which port and network exposure are allowed.
-4. Whether private-network browsing should be blocked by default.
-5. Whether persistent sessions are in scope for phase one.
+1. parse and validate HTTP(S) URLs;
+2. resolve hostnames;
+3. classify returned IPs;
+4. deny loopback, RFC1918/private, link-local, metadata, Docker/internal, multicast/special-use ranges as appropriate;
+5. return structured policy errors such as `private_network_denied`.

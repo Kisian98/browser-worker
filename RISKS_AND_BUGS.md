@@ -56,40 +56,40 @@ PORT
 
 ---
 
-### RB-002 — Action naming mismatch: skeleton uses `capture`, spec chooses `capturePage`
+### RB-002 — Action naming mismatch resolved: use `capturePage`
 
-**Status:** Open  
+**Status:** Resolved  
 **Severity:** Medium  
 **Area:** API contract / tests  
 **Observed in:** `test/server.test.js`, `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`, `DECISIONS.md`
 
 **What we know:**
 
-Existing skeleton tests currently submit:
+The skeleton originally accepted the old action name:
 
 ```json
 {"url":"https://example.com","action":"capture"}
 ```
 
-The approved stable action name is now:
+The approved stable action name is:
 
 ```text
 capturePage
 ```
 
-**Why it matters:**
+**Resolution:**
 
-If not reconciled early, docs/tests/implementation may drift and clients may depend on the wrong action name.
-
-**Expected fix:**
-
-When action validation is added, update tests and docs to use `capturePage`. Optionally reject unknown actions with a structured `invalid_action` error.
+- Updated endpoint tests to use `capturePage`.
+- Added explicit action validation in `server.js`.
+- Unknown actions now return structured `invalid_action` errors with HTTP 400.
+- The old `capture` action is rejected.
 
 **Acceptance evidence:**
 
 - Tests use `capturePage`.
 - API validation accepts `capturePage`.
-- Unknown action returns structured error.
+- Unknown action returns structured `invalid_action` error.
+- `npm test` passes: 7 tests, 0 failures.
 
 ---
 
@@ -265,6 +265,14 @@ Decide whether future `agent-runs/` logs should remain tracked, be pruned before
 - `.gitignore` updated if needed.
 
 ## Resolved issues
+
+### RB-001 — Direct-run localhost binding
+
+Resolved on 2026-06-27 by defaulting direct-run startup to `127.0.0.1:3080` with explicit `BROWSER_WORKER_HOST` override.
+
+### RB-002 — Action naming and validation
+
+Resolved on 2026-06-27 by migrating the accepted action to `capturePage` and returning structured `invalid_action` errors for unknown actions.
 
 ### RB-006 — Handoff stale blocker wording
 

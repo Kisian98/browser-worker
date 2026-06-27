@@ -114,7 +114,7 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 **Status:** Approved  
 **Decision:** Use `capturePage` as the stable phase-one action name.  
 **Rationale:** It is explicit, matches the detailed implementation spec, and leaves room for later actions such as `goto`, `click`, or `extractPage`.  
-**Implications:** Existing skeleton tests using `capture` should be migrated to `capturePage` when action validation is implemented.
+**Implications:** Skeleton tests and action validation now use `capturePage`; unknown actions return structured `invalid_action` errors.
 
 ### D-014 — Persistent profile timing
 

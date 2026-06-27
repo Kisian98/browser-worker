@@ -2,12 +2,14 @@
 
 Implementation has started from the approved small-service path. The first implemented runtime milestone is the structured response envelope plus a minimal HTTP service skeleton that exposes `/health` and `POST /v1/browser/jobs`.
 
-Verified on 2026-06-26:
+Verified on 2026-06-27:
 
-- `npm test` passes with 4 Node test-runner tests.
+- `npm test` passes with 7 Node test-runner tests.
 - `response-envelope.js` normalizes the stable response shape.
-- `server.js` returns structured envelopes for valid capture requests and validation failures.
-- Browser execution is not connected yet; successful capture responses include the warning `browser_execution_not_yet_connected`.
+- `server.js` returns structured envelopes for `capturePage` requests and validation failures.
+- Direct-run service defaults to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
+- Unknown actions return structured `invalid_action` errors.
+- Browser execution is not connected yet; successful `capturePage` responses include the warning `browser_execution_not_yet_connected`.
 
 ## Recommended HTTP JSON API contract
 
@@ -18,7 +20,7 @@ Request sketch:
 ```json
 {
   "url": "https://example.com",
-  "action": "capture",
+  "action": "capturePage",
   "session": { "mode": "isolated" },
   "capture": {
     "screenshot": true,

@@ -33,7 +33,7 @@ test('POST /v1/browser/jobs returns structured envelope for invalid URL errors',
     const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'file:///etc/passwd', action: 'capture' })
+      body: JSON.stringify({ url: 'file:///etc/passwd', action: 'capturePage' })
     });
     const body = await response.json();
 
@@ -49,12 +49,12 @@ test('POST /v1/browser/jobs returns structured envelope for invalid URL errors',
   });
 });
 
-test('POST /v1/browser/jobs returns structured envelope for capture requests', async () => {
+test('POST /v1/browser/jobs returns structured envelope for capturePage requests', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'https://example.com', action: 'capture' })
+      body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
     });
     const body = await response.json();
 
@@ -65,5 +65,23 @@ test('POST /v1/browser/jobs returns structured envelope for capture requests', a
     assert.equal(body.page.finalUrl, 'https://example.com/');
     assert.match(body.jobId, /^job-/);
     assert.deepEqual(body.errors, []);
+  });
+});
+
+test('POST /v1/browser/jobs rejects unknown actions with structured invalid_action errors', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com', action: 'capture' })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, 'failed');
+    assert.equal(body.page.requestedUrl, 'https://example.com');
+    assert.equal(body.errors[0].code, 'invalid_action');
+    assert.equal(body.errors[0].detail.field, 'action');
   });
 });
