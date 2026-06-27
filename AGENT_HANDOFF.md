@@ -1,6 +1,6 @@
 # Browser Worker Agent Handoff
 
-Updated: 2026-06-27
+Updated: 2026-06-28
 
 ## Mission
 
@@ -29,7 +29,9 @@ Implemented skeleton:
 - `server.js`
   - `GET /health`
   - `POST /v1/browser/jobs`
+  - direct-run default `127.0.0.1:3080`
   - basic JSON parsing and HTTP(S) URL validation
+  - action validation for `capturePage`
   - placeholder capture response with `browser_execution_not_yet_connected`
 - tests:
   - response envelope tests
@@ -59,6 +61,7 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 
 - Isolated sessions are default.
 - Private-network browsing is blocked by default.
+- URL/private-network policy must be implemented before real browser navigation.
 - `storageState` comes after isolated sessions work.
 - Persistent named profile support comes after isolated + `storageState` work.
 - First named persistent profile, when implemented, is `marketing-tools`.
@@ -86,7 +89,8 @@ See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
 1. Private-network blocking is not implemented yet.
 2. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-3. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
+3. The current response envelope is smaller than the detailed implementation spec; align it before external callers depend on it.
+4. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
@@ -94,7 +98,8 @@ See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 2. Start URL/private-network policy module with tests before any browser navigation.
 3. Deny loopback/private/link-local/metadata/internal-network targets with structured errors.
 4. Add redirect-to-private handling before connecting real Playwright capture.
-5. Only then connect Playwright isolated capture in a vertical slice.
+5. Align response-envelope fields with the detailed spec before Hermes depends on the current skeleton shape.
+6. Only then connect Playwright isolated capture in a vertical slice.
 
 ## Verification baseline
 
@@ -105,4 +110,4 @@ cd /DATA/browser-stack
 npm test
 ```
 
-Expected current result: 4 tests pass, 0 fail.
+Expected current result: 7 tests pass, 0 fail.
