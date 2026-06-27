@@ -20,7 +20,7 @@ As of 2026-06-27:
 - `GET /health` exists.
 - `POST /v1/browser/jobs` exists.
 - `response-envelope.js` exists.
-- `npm test` was previously reported passing with 4 Node test-runner tests.
+- `npm test` passes with 7 Node test-runner tests.
 - Browser execution is intentionally not connected yet.
 - Successful job responses include `browser_execution_not_yet_connected` and do not create real browser artifacts.
 
@@ -85,6 +85,18 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 ```
 
 **Acceptance evidence required:** HTTP 400 and structured `invalid_url` envelope.
+
+### A-005b — Job endpoint rejects unknown actions cleanly
+
+**Status:** Verified for skeleton  
+**Requirement:** Unknown actions return HTTP 400 and structured error code `invalid_action`; phase-one accepts `capturePage`.  
+**Verification command:**
+
+```bash
+curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capture"}'
+```
+
+**Acceptance evidence:** Node tests verify old `capture` is rejected with `invalid_action`, while `capturePage` is accepted.
 
 ### A-006 — Private-network URL is blocked by default
 

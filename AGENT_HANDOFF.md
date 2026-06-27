@@ -84,19 +84,17 @@ Read these first:
 
 See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
-1. Skeleton tests still use `capture`; approved action name is `capturePage`.
-2. Private-network blocking is not implemented yet.
-3. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-4. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
+1. Private-network blocking is not implemented yet.
+2. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
+3. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Reconcile API action naming: migrate skeleton/tests from `capture` to `capturePage`.
-3. Add explicit action validation and a structured `invalid_action` error for unknown actions.
-4. Run tests and update `RISKS_AND_BUGS.md` for RB-002.
-5. Start URL/private-network policy module with tests before any browser navigation.
-6. Only then connect Playwright isolated capture in a vertical slice.
+2. Start URL/private-network policy module with tests before any browser navigation.
+3. Deny loopback/private/link-local/metadata/internal-network targets with structured errors.
+4. Add redirect-to-private handling before connecting real Playwright capture.
+5. Only then connect Playwright isolated capture in a vertical slice.
 
 ## Verification baseline
 

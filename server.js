@@ -39,6 +39,13 @@ function validateHttpUrl(value) {
   }
 }
 
+function validateAction(value) {
+  if (value !== 'capturePage') {
+    return { ok: false, message: 'Action must be capturePage' };
+  }
+  return { ok: true, action: value };
+}
+
 async function handleBrowserJob(req, res) {
   const jobId = makeJobId();
   const startedAt = nowIso();
@@ -70,6 +77,21 @@ async function handleBrowserJob(req, res) {
       status: 'failed',
       page: { requestedUrl },
       errors: [{ code: 'invalid_url', message: urlValidation.message, detail: { field: 'url' } }]
+    }));
+  }
+
+  const requestedAction = requestBody.action ?? null;
+  const actionValidation = validateAction(requestedAction);
+  if (!actionValidation.ok) {
+    const endedAt = nowIso();
+    return writeJson(res, 400, createResponseEnvelope({
+      ok: false,
+      jobId,
+      startedAt,
+      endedAt,
+      status: 'failed',
+      page: { requestedUrl },
+      errors: [{ code: 'invalid_action', message: actionValidation.message, detail: { field: 'action', allowed: ['capturePage'] } }]
     }));
   }
 
