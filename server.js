@@ -124,9 +124,16 @@ export function createServer() {
   });
 }
 
+export function getListenConfig(env = process.env) {
+  return {
+    port: Number(env.PORT ?? 3080),
+    host: env.BROWSER_WORKER_HOST ?? '127.0.0.1'
+  };
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const port = Number(process.env.PORT ?? 3080);
-  createServer().listen(port, '0.0.0.0', () => {
-    console.log(`browser-worker listening on ${port}`);
+  const { port, host } = getListenConfig();
+  createServer().listen(port, host, () => {
+    console.log(`browser-worker listening on ${host}:${port}`);
   });
 }

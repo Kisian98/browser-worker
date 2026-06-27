@@ -18,40 +18,41 @@ This is the canonical checklist for known risks, bugs, hazards, and future issue
 - **Medium** — can cause implementation friction, test gaps, operational confusion, or future rework.
 - **Low** — documentation cleanup, naming polish, or small maintainability concern.
 
-## Open / active checklist
+## Checklist
 
-### RB-001 — Direct-run service currently binds `0.0.0.0`
+### RB-001 — Direct-run service previously bound `0.0.0.0`
 
-**Status:** Open  
+**Status:** Resolved  
 **Severity:** High  
 **Area:** network exposure / service runtime  
 **Observed in:** `server.js`
 
 **What we know:**
 
-`server.js` currently starts the HTTP service with:
+`server.js` previously started the HTTP service with an explicit `0.0.0.0` bind. Kristian approved port `3080` if available, with phase-one binding localhost/internal-only.
 
-```js
-createServer().listen(port, '0.0.0.0', () => {
-  console.log(`browser-worker listening on ${port}`);
-});
+**Resolution:**
+
+Implemented `getListenConfig()` in `server.js` with safe defaults:
+
+```text
+host: 127.0.0.1
+port: 3080
 ```
 
-Kristian approved port `3080` if available, with phase-one binding localhost/internal-only.
+Explicit override remains available through:
 
-**Why it matters:**
-
-Binding to `0.0.0.0` can expose the service more broadly than intended, depending on container/network configuration. That conflicts with the current phase-one security posture.
-
-**Expected fix:**
-
-Add explicit host binding configuration, defaulting to `127.0.0.1` or an approved internal-only address. Tests should verify the default host value and documented startup behavior.
+```text
+BROWSER_WORKER_HOST
+PORT
+```
 
 **Acceptance evidence:**
 
-- Source shows safe default binding.
-- Runtime check confirms service is listening only on approved interface.
-- `ACCEPTANCE_TESTS.md` A-022 satisfied.
+- RED test initially failed because `getListenConfig` did not exist.
+- Added tests for default localhost/port and explicit override.
+- `npm test` passes: 6 tests, 0 failures.
+- Runtime smoke check: `curl http://127.0.0.1:3080/health` returns healthy JSON.
 
 ---
 

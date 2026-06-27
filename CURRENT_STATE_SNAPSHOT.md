@@ -79,12 +79,14 @@ The current rebuild has a minimal Node service skeleton:
 
 - `server.js`
   - exports `createServer()`
+  - exports `getListenConfig()`
   - `GET /health` returns minimal healthy JSON
   - `POST /v1/browser/jobs` reads JSON, validates URL, and returns a structured envelope
   - valid capture responses currently include warning `browser_execution_not_yet_connected`
   - does not launch Playwright yet
   - does not create artifact directories yet
-  - starts on `PORT` or `3080`, binding `0.0.0.0` when run directly
+  - starts on `PORT` or `3080`, binding `127.0.0.1` by default
+  - explicit host override available through `BROWSER_WORKER_HOST`
 
 ## Tests currently present
 
@@ -98,7 +100,7 @@ The current rebuild has a minimal Node service skeleton:
 
 ## Verified command output
 
-Command run from `/DATA/browser-stack` on 2026-06-27:
+Command run from `/DATA/browser-stack` on 2026-06-27 after the localhost-binding slice:
 
 ```bash
 npm test
@@ -107,28 +109,19 @@ npm test
 Result:
 
 ```text
-> browser-worker@0.1.0 test
-> node --test
-
-TAP version 13
-# Subtest: createResponseEnvelope returns a completed success envelope with stable top-level shape
-ok 1 - createResponseEnvelope returns a completed success envelope with stable top-level shape
-# Subtest: createResponseEnvelope returns a failed envelope with normalized structured errors
-ok 2 - createResponseEnvelope returns a failed envelope with normalized structured errors
-# Subtest: POST /v1/browser/jobs returns structured envelope for invalid URL errors
-ok 3 - POST /v1/browser/jobs returns structured envelope for invalid URL errors
-# Subtest: POST /v1/browser/jobs returns structured envelope for capture requests
-ok 4 - POST /v1/browser/jobs returns structured envelope for capture requests
-1..4
-# tests 4
-# suites 0
-# pass 4
+# tests 6
+# pass 6
 # fail 0
-# cancelled 0
-# skipped 0
-# todo 0
-# duration_ms 168.744946
 ```
+
+Runtime smoke check:
+
+```bash
+PORT=3080 npm start
+curl -sS http://127.0.0.1:3080/health
+```
+
+Result: health endpoint returned `ok: true`, `service: browser-worker`, `version: 0.1.0`, `status: healthy`.
 
 ## Git/repository state
 
@@ -239,6 +232,7 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 
 ## Current risk notes
 
-- `server.js` currently binds to `0.0.0.0` when started directly. This may conflict with the intended local/internal-only default and should be addressed before broader runtime use.
-- Tests currently use `action: 'capture'`, while `BROWSER_WORKER_IMPLEMENTATION_SPEC.md` prefers `capturePage`; this naming should be reconciled before freezing the API.
-- `AGENT_HANDOFF.md` still says runtime files were not visible under `/DATA/browser-stack`; later docs clarify they were found under `/opt/data/browser-stack`. The handoff may need a cleanup/update pass.
+- Tests currently use `action: 'capture'`, while approved API naming is `capturePage`; this naming should be reconciled before freezing the API.
+- Private-network blocking is not implemented yet and must come before arbitrary browser navigation.
+- Browser execution is intentionally not connected yet; keep `browser_execution_not_yet_connected` visible until real capture works.
+- Decide whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.

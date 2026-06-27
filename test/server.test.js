@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createServer } from '../server.js';
+import { createServer, getListenConfig } from '../server.js';
 
 async function withServer(callback) {
   const server = createServer();
@@ -13,6 +13,20 @@ async function withServer(callback) {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 }
+
+test('getListenConfig defaults to localhost and port 3080', () => {
+  const config = getListenConfig({});
+
+  assert.equal(config.host, '127.0.0.1');
+  assert.equal(config.port, 3080);
+});
+
+test('getListenConfig allows explicit host and port overrides', () => {
+  const config = getListenConfig({ BROWSER_WORKER_HOST: '0.0.0.0', PORT: '3099' });
+
+  assert.equal(config.host, '0.0.0.0');
+  assert.equal(config.port, 3099);
+});
 
 test('POST /v1/browser/jobs returns structured envelope for invalid URL errors', async () => {
   await withServer(async (baseUrl) => {

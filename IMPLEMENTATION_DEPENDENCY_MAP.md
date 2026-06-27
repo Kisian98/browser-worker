@@ -159,6 +159,12 @@ Potential later hardening:
 
 ## Suggested vertical-slice order
 
+Completed:
+
+1. Safe direct-run binding default: `127.0.0.1` / port `3080`, with explicit `BROWSER_WORKER_HOST` override.
+
+Next:
+
 1. Reconcile docs and action naming.
 2. Add/verify acceptance tests for current skeleton behavior.
 3. Add artifact root configuration and job directory writer.
