@@ -130,13 +130,23 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 **Rationale:** The old runtime is not production-ready, but it is useful fallback/reference material.  
 **Implications:** Do not delete, overwrite, or migrate it destructively. Any future migration must be explicit and reversible.
 
+### D-016 — Git author identity for Nix commits
+
+**Status:** Approved  
+**Decision:** Commits authored by Nix use `Nix <nix-assistant@agentmail.to>`.  
+**Rationale:** Keeps Nix-authored work identifiable and connected to the AgentMail address.  
+**Implications:** Use repo-local git config for this project unless a future project overrides it.
+
+### D-017 — Repository visibility
+
+**Status:** Approved / verified  
+**Decision:** `Kisian98/browser-worker` should be private.  
+**Verification:** After Kristian changed/check-corrected visibility, unauthenticated GitHub API and HTML requests returned `404`, while authenticated SSH git access still worked.  
+**Implications:** Treat public visibility as a regression/security issue if it appears again.
+
 ## Pending human review
 
-### P-005 — Git author identity for commits
-
-**Status:** Pending human review  
-**Question:** What git author name/email should be used for commits from this environment?  
-**Current default:** Do not commit until this is confirmed, unless Kristian approves a Nix-specific author identity.
+_No pending human-review decisions at this layer right now._
 
 ## Deferred / pinned revisits
 
