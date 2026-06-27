@@ -84,18 +84,17 @@ Read these first:
 
 See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
-1. `server.js` direct-run currently binds `0.0.0.0`; change default to localhost/internal-only before runtime use.
-2. Skeleton tests still use `capture`; approved action name is `capturePage`.
-3. Private-network blocking is not implemented yet.
-4. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-5. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
+1. Skeleton tests still use `capture`; approved action name is `capturePage`.
+2. Private-network blocking is not implemented yet.
+3. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
+4. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Write failing tests for safe host binding / config default.
-3. Implement localhost/internal-only default binding.
-4. Update action naming tests toward `capturePage` and add explicit action validation.
+2. Reconcile API action naming: migrate skeleton/tests from `capture` to `capturePage`.
+3. Add explicit action validation and a structured `invalid_action` error for unknown actions.
+4. Run tests and update `RISKS_AND_BUGS.md` for RB-002.
 5. Start URL/private-network policy module with tests before any browser navigation.
 6. Only then connect Playwright isolated capture in a vertical slice.
 

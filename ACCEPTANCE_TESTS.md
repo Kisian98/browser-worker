@@ -204,9 +204,16 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose up --build
 
 ### A-022 — Service is not publicly exposed by accident
 
-**Status:** Pending human review  
+**Status:** Verified for direct-run default  
 **Requirement:** Phase-one service binds only to localhost or an explicitly approved internal-only network surface.  
-**Acceptance evidence required:** Config/source inspection plus runtime port binding check.
+**Acceptance evidence:**
+
+- `server.js` now defaults to `127.0.0.1` via `getListenConfig()`.
+- Explicit override requires `BROWSER_WORKER_HOST`.
+- Tests cover default host/port and explicit override.
+- Runtime smoke check on 2026-06-27: `curl http://127.0.0.1:3080/health` returned healthy JSON.
+
+**Remaining note:** Docker/container binding still needs separate verification when the Docker runtime path is implemented.
 
 ## Phase-one completion gate
 
