@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Runtime output
+artifacts/
+screenshots/
+shots/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor noise
+.DS_Store
+.vscode/
+.idea/
