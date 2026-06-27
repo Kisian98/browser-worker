@@ -18,6 +18,8 @@ The current `/DATA/browser-stack` tree holds the planning/rebuild docs and the n
 Implementation has started. The current checked-in/runtime-visible pieces are:
 
 - `package.json` with `npm test` and `npm start` scripts.
+- Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
+- `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
 - `response-envelope.js` for a stable structured job response envelope.
 - `server.js` with `/health` and `POST /v1/browser/jobs`.
 - direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
@@ -32,6 +34,14 @@ host wrapper -> sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm b
 ```
 
 The current service does not yet launch Playwright. Successful `capturePage` requests deliberately include `browser_execution_not_yet_connected` so callers do not mistake the skeleton envelope for real browser capture.
+
+## Quick local commands
+
+```bash
+npm test
+PORT=3080 npm start
+curl -sS http://127.0.0.1:3080/health
+```
 
 ## Documentation map
 
