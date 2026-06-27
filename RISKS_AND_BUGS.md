@@ -186,33 +186,31 @@ Before hardening freezes layout, compare against Browserless, Browserbase, and P
 
 ---
 
-### RB-006 — `AGENT_HANDOFF.md` contains stale blocker wording
+### RB-006 — `AGENT_HANDOFF.md` contained stale blocker wording
 
-**Status:** Open  
+**Status:** Resolved  
 **Severity:** Low  
 **Area:** documentation consistency  
 **Observed in:** `AGENT_HANDOFF.md`
 
 **What we know:**
 
-`AGENT_HANDOFF.md` still says runtime files were not visible under `/DATA/browser-stack` and that implementation is not ready until missing runtime files are visible. Later docs clarify the old runtime was found under `/opt/data/browser-stack` and is no longer a blocker.
+`AGENT_HANDOFF.md` previously said runtime files were not visible under `/DATA/browser-stack` and that implementation was not ready until missing runtime files were visible. Later docs clarified the old runtime was found under `/opt/data/browser-stack` and is no longer a blocker.
 
-**Why it matters:**
+**Resolution:**
 
-A future agent may read the handoff and think a resolved blocker is still active.
-
-**Expected fix:**
-
-Update the handoff to reflect the current state:
+Updated `AGENT_HANDOFF.md` on 2026-06-27 to reflect:
 
 - old runtime found under `/opt/data/browser-stack`;
 - old runtime is fallback/reference;
-- `/DATA/browser-stack` is now the GitHub working tree;
-- implementation foundation branch exists.
+- `/DATA/browser-stack` is the GitHub working tree;
+- foundation PR #1 merged;
+- repository is private;
+- current next implementation steps.
 
 **Acceptance evidence:**
 
-- Handoff wording matches `CURRENT_STATE_SNAPSHOT.md` and `DECISIONS.md`.
+- Handoff wording now matches `CURRENT_STATE_SNAPSHOT.md` and `DECISIONS.md`.
 
 ---
 
@@ -267,7 +265,40 @@ Decide whether future `agent-runs/` logs should remain tracked, be pruned before
 
 ## Resolved issues
 
-_No resolved risks/bugs yet._
+### RB-006 — Handoff stale blocker wording
+
+Resolved on 2026-06-27 by rewriting `AGENT_HANDOFF.md` to match current repo/runtime state.
+
+### RB-009 — Repository visibility appeared public
+
+**Status:** Resolved  
+**Severity:** High  
+**Area:** repository visibility / privacy
+
+**What happened:**
+
+Kristian created the repo intending it to be private, but it appeared public after the foundation PR was merged. Nix verified via unauthenticated GitHub API that the repo was public at that moment:
+
+```text
+private: False
+visibility: public
+```
+
+**Resolution:**
+
+Kristian corrected the repository visibility. Nix re-checked:
+
+```text
+GitHub API unauthenticated: 404 Not Found
+GitHub HTML unauthenticated: 404
+Authenticated SSH git check: HEAD returned normally
+```
+
+This is the expected behavior for a private repo that Nix can access over SSH.
+
+**Follow-up:**
+
+Treat public visibility as a regression if it ever appears again.
 
 ## Maintenance rules
 

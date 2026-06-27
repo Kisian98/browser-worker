@@ -29,10 +29,14 @@ BROWSER_WORKER_IMPLEMENTATION_SPEC.md
 CURRENT_STATE_SNAPSHOT.md
 DECISIONS.md
 IMPLEMENTATION_APPROACH.md
+IMPLEMENTATION_DEPENDENCY_MAP.md
 IMPLEMENTATION_NOTES.md
+PHASE_ONE_SCOPE.md
 PROJECT_CONTEXT.md
 README.md
 RESEARCH_NOTES.md
+RISKS_AND_BUGS.md
+TARGETED_RESEARCH_2026-06-27.md
 TODAY_GOALS_2026-06-27.md
 package.json
 response-envelope.js
@@ -132,25 +136,29 @@ Resolved on 2026-06-27:
 
 - Remote repository: `git@github.com:Kisian98/browser-worker.git`
 - GitHub SSH access verified.
-- Remote `main` exists and initially contained `LICENSE`.
-- `/DATA/browser-stack` has been initialized as a git working tree on `main`, tracking `origin/main`.
-- Working branch created: `feature/browser-worker-service-foundation`.
-- Current blocker before committing: git author name/email for this environment.
+- Repository visibility: private. Verified after a visibility concern by unauthenticated GitHub API and HTML checks returning `404`, while authenticated SSH `git ls-remote` still works.
+- Default branch: `main`.
+- Foundation PR #1 was merged and closed.
+- `/DATA/browser-stack` is the local working tree.
+- Local `main` was fast-forwarded to the merged foundation state.
+- A follow-up documentation branch was created: `docs/update-current-state-2026-06-27`.
+- Git author for Nix's commits: `Nix <nix-assistant@agentmail.to>`.
 
 Command checks:
 
 ```bash
-git ls-remote git@github.com:Kisian98/browser-worker.git HEAD
-git ls-remote --heads git@github.com:Kisian98/browser-worker.git
+git fetch --prune origin
 git status --short --branch
+git ls-remote git@github.com:Kisian98/browser-worker.git HEAD
+curl -sS -o /dev/null -w 'http_code=%{http_code}\n' https://github.com/Kisian98/browser-worker
 ```
 
-Observed:
+Observed after repo privacy update:
 
 ```text
-2ef0b3f877f8a4918b7b45875f693f135067f244 HEAD
-2ef0b3f877f8a4918b7b45875f693f135067f244 refs/heads/main
-## main...origin/main
+Unauthenticated GitHub API: 404 Not Found
+Unauthenticated GitHub HTML: 404
+Authenticated SSH git check: 6d67c29a847cb002f2c37985c24c3e1701314463 HEAD
 ```
 
 ## Port/binding state
@@ -210,15 +218,24 @@ Known legacy/environment-specific Docker command shape to preserve where relevan
 sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 ```
 
-## Open environment/project questions
+## Resolved environment/project questions
 
-- Which GitHub repository/remote should own `/DATA/browser-stack`?
-- Should `/DATA/browser-stack` be initialized as a new repo, connected to an existing repo, or copied into another project root?
-- Which branch naming convention should be used for implementation?
-- Which host port should expose the HTTP service?
-- Should direct service binding remain localhost/internal-only in phase one? Current default: yes.
-- Should initial job action naming standardize on `capturePage` rather than existing skeleton tests using `capture`?
-- Is persistent profile support part of phase one implementation or only phase-one design?
+- Repository/remote: `git@github.com:Kisian98/browser-worker.git`.
+- Repository visibility: private, verified.
+- Local root: `/DATA/browser-stack`.
+- Default branch: `main`.
+- Foundation PR #1 merged and closed.
+- Feature branch `feature/browser-worker-service-foundation` was deleted from remote after merge.
+- Service port: `3080` approved if available; availability checked on `127.0.0.1`.
+- Service binding: localhost/internal-only for phase one.
+- Initial action name: `capturePage`.
+- Persistent profile timing: after isolated sessions and `storageState` work.
+- Old runtime policy: keep `/opt/data/browser-stack` as fallback/reference.
+
+## Remaining environment/project questions
+
+- Whether Docker runtime work starts immediately after local service proof or after browser capture proof.
+- Whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.
 
 ## Current risk notes
 
