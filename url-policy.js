@@ -48,24 +48,62 @@ function classifyIpv4(address) {
   return { blocked: false, reason: null };
 }
 
+function normalizeIpv6Hextets(address) {
+  const [leftPart, rightPart = ''] = address.toLowerCase().split('::');
+  if (address.split('::').length > 2) return null;
+
+  const parseSide = (part) => (part ? part.split(':').filter(Boolean) : []);
+  const left = parseSide(leftPart);
+  const right = parseSide(rightPart);
+  const total = left.length + right.length;
+  if (total > 8) return null;
+
+  const expanded = [...left, ...Array(8 - total).fill('0'), ...right].map((part) => part.padStart(4, '0'));
+  if (expanded.length !== 8) return null;
+  if (expanded.some((part) => !/^[0-9a-f]{4}$/.test(part))) return null;
+  return expanded;
+}
+
+function ipv4ToMappedHextets(address) {
+  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4) return null;
+  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return null;
+
+  const upper = ((parts[0] << 8) | parts[1]).toString(16).padStart(4, '0');
+  const lower = ((parts[2] << 8) | parts[3]).toString(16).padStart(4, '0');
+  return [upper, lower];
+}
+
 function parseMappedIpv4(normalizedIpv6) {
-  const mappedPrefix = '::ffff:';
-  if (!normalizedIpv6.startsWith(mappedPrefix)) return null;
+  const lastColon = normalizedIpv6.lastIndexOf(':');
+  const dottedSuffix = lastColon >= 0 ? normalizedIpv6.slice(lastColon + 1) : '';
+  const dottedIpv4 = /^(\d+\.\d+\.\d+\.\d+)$/.test(dottedSuffix) ? dottedSuffix : null;
 
-  const suffix = normalizedIpv6.slice(mappedPrefix.length);
-  if (suffix.includes('.')) return suffix;
+  if (dottedIpv4) {
+    const mappedHextets = ipv4ToMappedHextets(dottedIpv4);
+    if (!mappedHextets) return null;
+    const prefix = normalizedIpv6.slice(0, lastColon);
+    const hextets = normalizeIpv6Hextets(`${prefix}:${mappedHextets[0]}:${mappedHextets[1]}`);
+    if (!hextets) return null;
+    if (!hextets.slice(0, 5).every((part) => part === '0000')) return null;
+    if (hextets[5] !== 'ffff') return null;
+    return dottedIpv4;
+  }
 
-  const parts = suffix.split(':');
-  if (parts.length !== 2) return null;
+  const hextets = normalizeIpv6Hextets(normalizedIpv6);
+  if (!hextets) return null;
+  if (!hextets.slice(0, 5).every((part) => part === '0000')) return null;
+  if (hextets[5] !== 'ffff') return null;
 
-  const values = parts.map((part) => Number.parseInt(part, 16));
-  if (values.some((value) => Number.isNaN(value) || value < 0 || value > 0xffff)) return null;
+  const upper = Number.parseInt(hextets[6], 16);
+  const lower = Number.parseInt(hextets[7], 16);
+  if (Number.isNaN(upper) || Number.isNaN(lower)) return null;
 
   return [
-    values[0] >> 8,
-    values[0] & 0xff,
-    values[1] >> 8,
-    values[1] & 0xff
+    upper >> 8,
+    upper & 0xff,
+    lower >> 8,
+    lower & 0xff
   ].join('.');
 }
 
