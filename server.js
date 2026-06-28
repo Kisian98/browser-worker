@@ -50,11 +50,14 @@ async function handleBrowserJob(req, res) {
       startedAt,
       endedAt,
       status: 'failed',
-      errors: [{ code: 'invalid_json', message: error.message }]
+      errors: [{ code: 'invalid_json', message: error.message, phase: 'requestParsing', retryable: false }]
     }));
   }
 
-  const requestedUrl = requestBody.url ?? null;
+  const requestedAction = requestBody?.action ?? null;
+  const requestedSessionMode = requestBody?.session?.mode ?? 'isolated';
+  const requestedUrl = requestBody?.url ?? null;
+  const requestSummary = { action: requestedAction, sessionMode: requestedSessionMode };
   const urlPolicy = await evaluateUrlPolicy({ url: requestedUrl });
   if (!urlPolicy.ok) {
     const endedAt = nowIso();
@@ -63,13 +66,17 @@ async function handleBrowserJob(req, res) {
       jobId,
       startedAt,
       endedAt,
-      status: 'failed',
+      status: urlPolicy.error.code === 'private_network_denied' ? 'blocked' : 'failed',
+      request: requestSummary,
       page: { requestedUrl },
+      signals: {
+        blocked: urlPolicy.error.code === 'private_network_denied',
+        privateNetworkDenied: urlPolicy.error.code === 'private_network_denied'
+      },
       errors: [urlPolicy.error]
     }));
   }
 
-  const requestedAction = requestBody.action ?? null;
   const actionValidation = validateAction(requestedAction);
   if (!actionValidation.ok) {
     const endedAt = nowIso();
@@ -79,8 +86,15 @@ async function handleBrowserJob(req, res) {
       startedAt,
       endedAt,
       status: 'failed',
+      request: requestSummary,
       page: { requestedUrl },
-      errors: [{ code: 'invalid_action', message: actionValidation.message, detail: { field: 'action', allowed: ['capturePage'] } }]
+      errors: [{
+        code: 'invalid_action',
+        message: actionValidation.message,
+        phase: 'requestValidation',
+        retryable: false,
+        detail: { field: 'action', allowed: ['capturePage'] }
+      }]
     }));
   }
 
@@ -89,6 +103,7 @@ async function handleBrowserJob(req, res) {
     jobId,
     startedAt,
     endedAt,
+    request: requestSummary,
     page: {
       requestedUrl,
       finalUrl: urlPolicy.url.toString(),

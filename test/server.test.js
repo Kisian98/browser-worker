@@ -40,11 +40,15 @@ test('POST /v1/browser/jobs returns structured envelope for invalid URL errors',
     assert.equal(response.status, 400);
     assert.equal(body.ok, false);
     assert.equal(body.status, 'failed');
+    assert.equal(body.request.action, 'capturePage');
+    assert.equal(body.request.sessionMode, 'isolated');
     assert.equal(body.page.requestedUrl, 'file:///etc/passwd');
     assert.equal(body.errors[0].code, 'invalid_url');
+    assert.equal(body.errors[0].phase, 'urlPolicy');
+    assert.equal(body.errors[0].retryable, false);
     assert.deepEqual(Object.keys(body), [
-      'ok', 'jobId', 'startedAt', 'endedAt', 'durationMs', 'status', 'page',
-      'signals', 'extraction', 'artifacts', 'warnings', 'errors'
+      'ok', 'jobId', 'startedAt', 'endedAt', 'durationMs', 'status', 'request', 'page',
+      'signals', 'extraction', 'artifacts', 'events', 'warnings', 'errors'
     ]);
   });
 });
@@ -60,9 +64,13 @@ test('POST /v1/browser/jobs rejects private-network targets with structured priv
 
     assert.equal(response.status, 400);
     assert.equal(body.ok, false);
-    assert.equal(body.status, 'failed');
+    assert.equal(body.status, 'blocked');
     assert.equal(body.page.requestedUrl, 'http://127.0.0.1:80/');
+    assert.equal(body.signals.blocked, true);
+    assert.equal(body.signals.privateNetworkDenied, true);
     assert.equal(body.errors[0].code, 'private_network_denied');
+    assert.equal(body.errors[0].phase, 'urlPolicy');
+    assert.equal(body.errors[0].retryable, false);
     assert.equal(body.errors[0].detail.field, 'url');
   });
 });
@@ -79,8 +87,11 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.status, 'completed');
+    assert.equal(body.request.action, 'capturePage');
+    assert.equal(body.request.sessionMode, 'isolated');
     assert.equal(body.page.requestedUrl, 'https://example.com');
     assert.equal(body.page.finalUrl, 'https://example.com/');
+    assert.deepEqual(body.events.dialogs, []);
     assert.match(body.jobId, /^job-/);
     assert.deepEqual(body.errors, []);
   });
@@ -98,8 +109,11 @@ test('POST /v1/browser/jobs rejects unknown actions with structured invalid_acti
     assert.equal(response.status, 400);
     assert.equal(body.ok, false);
     assert.equal(body.status, 'failed');
+    assert.equal(body.request.action, 'capture');
     assert.equal(body.page.requestedUrl, 'https://example.com');
     assert.equal(body.errors[0].code, 'invalid_action');
+    assert.equal(body.errors[0].phase, 'requestValidation');
+    assert.equal(body.errors[0].retryable, false);
     assert.equal(body.errors[0].detail.field, 'action');
   });
 });
