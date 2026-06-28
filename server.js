@@ -120,18 +120,12 @@ async function handleBrowserJob(req, res, { artifactRoot }) {
       text: '',
       headings: [],
       links: [],
-      forms: [],
-      ariaSnapshotPath: jobArtifacts.relative.ariaSnapshotPath
+      forms: []
     },
     artifacts: {
       directory: jobArtifacts.relative.directory,
       request: jobArtifacts.relative.request,
-      response: jobArtifacts.relative.response,
-      screenshot: jobArtifacts.relative.screenshot,
-      html: jobArtifacts.relative.html,
-      text: jobArtifacts.relative.text,
-      trace: jobArtifacts.relative.trace,
-      downloads: jobArtifacts.relative.downloads
+      response: jobArtifacts.relative.response
     },
     warnings: ['browser_execution_not_yet_connected']
   });

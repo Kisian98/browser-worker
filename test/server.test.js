@@ -119,7 +119,12 @@ test('POST /v1/browser/jobs creates job artifact directory and persists request 
       assert.match(body.artifacts.directory, /^jobs\/job-/);
       assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
       assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
-      assert.equal(body.artifacts.downloads, `${body.artifacts.directory}/downloads`);
+      assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
+      assert.equal(body.artifacts.trace, null);
+      assert.equal(body.extraction.ariaSnapshotPath, null);
+      assert.deepEqual(body.artifacts.downloads, []);
 
       const jobDirectory = path.join(artifactRoot, body.artifacts.directory);
       const directoryStat = await stat(jobDirectory);
