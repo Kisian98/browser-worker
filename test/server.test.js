@@ -97,6 +97,25 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
   });
 });
 
+test('POST /v1/browser/jobs reports isolated as the effective session mode until sessions are implemented', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://example.com',
+        action: 'capturePage',
+        session: { mode: 'persistentProfile' }
+      })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.request.action, 'capturePage');
+    assert.equal(body.request.sessionMode, 'isolated');
+  });
+});
+
 test('POST /v1/browser/jobs rejects unknown actions with structured invalid_action errors', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/browser/jobs`, {

@@ -55,9 +55,9 @@ async function handleBrowserJob(req, res) {
   }
 
   const requestedAction = requestBody?.action ?? null;
-  const requestedSessionMode = requestBody?.session?.mode ?? 'isolated';
+  const effectiveSessionMode = 'isolated';
   const requestedUrl = requestBody?.url ?? null;
-  const requestSummary = { action: requestedAction, sessionMode: requestedSessionMode };
+  const requestSummary = { action: requestedAction, sessionMode: effectiveSessionMode };
   const urlPolicy = await evaluateUrlPolicy({ url: requestedUrl });
   if (!urlPolicy.ok) {
     const endedAt = nowIso();
