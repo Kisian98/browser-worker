@@ -32,6 +32,11 @@ Implemented skeleton:
 - `url-policy.js`
   - pre-navigation URL/private-network policy
   - structured `invalid_url` / `private_network_denied` errors
+- `artifacts.js`
+  - artifact-root-relative path planning
+  - per-job directory creation
+  - `downloads/` directory creation
+  - formatted JSON file writes
 - `server.js`
   - `GET /health`
   - `POST /v1/browser/jobs`
@@ -102,9 +107,9 @@ See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Add artifact root configuration and deterministic job directory writing.
-3. Persist `request.json` and `response.json`.
-4. Only then connect Playwright isolated capture in a vertical slice.
+2. Connect Playwright isolated capture in a narrow vertical slice using the existing URL policy, envelope, and artifact paths.
+3. Write screenshot/HTML/text artifacts.
+4. Re-check URL policy after redirects before trusting final navigation state.
 
 ## Verification baseline
 
@@ -115,4 +120,4 @@ cd /DATA/browser-stack
 npm test
 ```
 
-Expected current result: 7 tests pass, 0 fail.
+Expected current result: 20 tests pass, 0 fail.

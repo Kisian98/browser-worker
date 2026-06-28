@@ -39,6 +39,7 @@ RISKS_AND_BUGS.md
 TARGETED_RESEARCH_2026-06-27.md
 TODAY_GOALS_2026-06-27.md
 package.json
+artifacts.js
 response-envelope.js
 server.js
 test/response-envelope.test.js
@@ -85,12 +86,18 @@ The current rebuild has a minimal Node service skeleton:
   - exports `createServer()`
   - exports `getListenConfig()`
   - `GET /health` returns minimal healthy JSON
-  - `POST /v1/browser/jobs` reads JSON, validates action, evaluates URL/private-network policy, and returns a structured envelope
+  - `POST /v1/browser/jobs` reads JSON, validates action, evaluates URL/private-network policy, writes `request.json` / `response.json`, and returns a structured envelope
   - valid capture responses currently include warning `browser_execution_not_yet_connected`
   - does not launch Playwright yet
-  - does not create artifact directories yet
+  - creates deterministic per-job artifact directories under the configured artifact root
   - starts on `PORT` or `3080`, binding `127.0.0.1` by default
   - explicit host override available through `BROWSER_WORKER_HOST`
+  - explicit artifact root override available through `BROWSER_WORKER_ARTIFACT_ROOT`
+
+- `artifacts.js`
+  - exports helpers for artifact-root-relative job paths
+  - creates per-job directories and `downloads/` directories
+  - writes formatted JSON files
 
 - `url-policy.js`
   - exports `evaluateUrlPolicy(...)`
@@ -107,10 +114,12 @@ The current rebuild has a minimal Node service skeleton:
   - default `phase` / `retryable` metadata for underspecified errors
 
 - `test/server.test.js`
-  - listen config defaults and overrides
+  - listen config defaults and overrides, including artifact root
   - invalid URL produces structured failure envelope
   - private-network target produces structured `private_network_denied` envelope
   - `capturePage` request produces structured envelope
+  - accepted job creates artifact directory and persists `request.json` / `response.json`
+  - unsupported requested session mode still reports effective `isolated`
   - unknown action produces structured `invalid_action` failure envelope
 
 - `test/url-policy.test.js`
@@ -124,7 +133,7 @@ The current rebuild has a minimal Node service skeleton:
 
 ## Verified command output
 
-Command run from `/DATA/browser-stack` on 2026-06-28 after the URL-policy slice:
+Command run from `/DATA/browser-stack` on 2026-06-28 after the artifact-directory/persistence slice:
 
 ```bash
 npm test
@@ -133,8 +142,8 @@ npm test
 Result:
 
 ```text
-# tests 18
-# pass 18
+# tests 20
+# pass 20
 # fail 0
 ```
 

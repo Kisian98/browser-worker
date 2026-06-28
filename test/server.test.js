@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { createServer, getListenConfig } from '../server.js';
 
-async function withServer(callback) {
-  const server = createServer();
+async function withServer(callback, options = {}) {
+  const server = createServer(options);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   try {
@@ -19,13 +22,15 @@ test('getListenConfig defaults to localhost and port 3080', () => {
 
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.port, 3080);
+  assert.equal(config.artifactRoot, 'artifacts');
 });
 
-test('getListenConfig allows explicit host and port overrides', () => {
-  const config = getListenConfig({ BROWSER_WORKER_HOST: '0.0.0.0', PORT: '3099' });
+test('getListenConfig allows explicit host, port, and artifact root overrides', () => {
+  const config = getListenConfig({ BROWSER_WORKER_HOST: '0.0.0.0', PORT: '3099', BROWSER_WORKER_ARTIFACT_ROOT: '/tmp/browser-artifacts' });
 
   assert.equal(config.host, '0.0.0.0');
   assert.equal(config.port, 3099);
+  assert.equal(config.artifactRoot, '/tmp/browser-artifacts');
 });
 
 test('POST /v1/browser/jobs returns structured envelope for invalid URL errors', async () => {
@@ -95,6 +100,46 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
     assert.match(body.jobId, /^job-/);
     assert.deepEqual(body.errors, []);
   });
+});
+
+test('POST /v1/browser/jobs creates job artifact directory and persists request and response JSON', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-artifacts-'));
+  const requestPayload = { url: 'https://example.com', action: 'capturePage' };
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(requestPayload)
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.match(body.artifacts.directory, /^jobs\/job-/);
+      assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
+      assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
+      assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
+      assert.equal(body.artifacts.trace, null);
+      assert.equal(body.extraction.ariaSnapshotPath, null);
+      assert.deepEqual(body.artifacts.downloads, []);
+
+      const jobDirectory = path.join(artifactRoot, body.artifacts.directory);
+      const directoryStat = await stat(jobDirectory);
+      const downloadsStat = await stat(path.join(jobDirectory, 'downloads'));
+      assert.equal(directoryStat.isDirectory(), true);
+      assert.equal(downloadsStat.isDirectory(), true);
+
+      const persistedRequest = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.request), 'utf8'));
+      const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
+      assert.deepEqual(persistedRequest, requestPayload);
+      assert.deepEqual(persistedResponse, body);
+    }, { artifactRoot });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
 });
 
 test('POST /v1/browser/jobs reports isolated as the effective session mode until sessions are implemented', async () => {

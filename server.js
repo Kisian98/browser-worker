@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 
+import { createJobArtifacts, prepareJobArtifacts, writeJsonFile } from './artifacts.js';
 import { createResponseEnvelope } from './response-envelope.js';
 import { evaluateUrlPolicy } from './url-policy.js';
 
@@ -35,7 +36,7 @@ function validateAction(value) {
   return { ok: true, action: value };
 }
 
-async function handleBrowserJob(req, res) {
+async function handleBrowserJob(req, res, { artifactRoot }) {
   const jobId = makeJobId();
   const startedAt = nowIso();
   let requestBody;
@@ -98,8 +99,12 @@ async function handleBrowserJob(req, res) {
     }));
   }
 
+  const jobArtifacts = createJobArtifacts({ artifactRoot, jobId });
+  await prepareJobArtifacts(jobArtifacts);
+  await writeJsonFile(jobArtifacts.absolute.request, requestBody);
+
   const endedAt = nowIso();
-  return writeJson(res, 200, createResponseEnvelope({
+  const envelope = createResponseEnvelope({
     jobId,
     startedAt,
     endedAt,
@@ -118,16 +123,18 @@ async function handleBrowserJob(req, res) {
       forms: []
     },
     artifacts: {
-      directory: null,
-      screenshot: null,
-      html: null,
-      downloads: []
+      directory: jobArtifacts.relative.directory,
+      request: jobArtifacts.relative.request,
+      response: jobArtifacts.relative.response
     },
     warnings: ['browser_execution_not_yet_connected']
-  }));
+  });
+  await writeJsonFile(jobArtifacts.absolute.response, envelope);
+  return writeJson(res, 200, envelope);
 }
 
-export function createServer() {
+export function createServer(options = {}) {
+  const config = { artifactRoot: 'artifacts', ...options };
   return http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && req.url === '/health') {
@@ -140,7 +147,7 @@ export function createServer() {
       }
 
       if (req.method === 'POST' && req.url === '/v1/browser/jobs') {
-        return await handleBrowserJob(req, res);
+        return await handleBrowserJob(req, res, config);
       }
 
       return writeJson(res, 404, { ok: false, error: 'not_found' });
@@ -153,13 +160,14 @@ export function createServer() {
 export function getListenConfig(env = process.env) {
   return {
     port: Number(env.PORT ?? 3080),
-    host: env.BROWSER_WORKER_HOST ?? '127.0.0.1'
+    host: env.BROWSER_WORKER_HOST ?? '127.0.0.1',
+    artifactRoot: env.BROWSER_WORKER_ARTIFACT_ROOT ?? 'artifacts'
   };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { port, host } = getListenConfig();
-  createServer().listen(port, host, () => {
+  const { port, host, artifactRoot } = getListenConfig();
+  createServer({ artifactRoot }).listen(port, host, () => {
     console.log(`browser-worker listening on ${host}:${port}`);
   });
 }
