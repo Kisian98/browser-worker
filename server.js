@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 
 import { createJobArtifacts, prepareJobArtifacts, writeJsonFile } from './artifacts.js';
+import { runIsolatedCapturePage, fileExists } from './browser-capture.js';
 import { createResponseEnvelope } from './response-envelope.js';
 import { evaluateUrlPolicy } from './url-policy.js';
 
@@ -36,7 +37,7 @@ function validateAction(value) {
   return { ok: true, action: value };
 }
 
-async function handleBrowserJob(req, res, { artifactRoot }) {
+async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   const jobId = makeJobId();
   const startedAt = nowIso();
   let requestBody;
@@ -103,7 +104,14 @@ async function handleBrowserJob(req, res, { artifactRoot }) {
   await prepareJobArtifacts(jobArtifacts);
   await writeJsonFile(jobArtifacts.absolute.request, requestBody);
 
+  const captureResult = await capturePage({
+    targetUrl: urlPolicy.url.toString(),
+    screenshotPath: jobArtifacts.absolute.screenshot
+  });
+  const screenshotCreated = captureResult.screenshotCreated && await fileExists(jobArtifacts.absolute.screenshot);
+
   const endedAt = nowIso();
+  const warnings = [];
   const envelope = createResponseEnvelope({
     jobId,
     startedAt,
@@ -111,9 +119,9 @@ async function handleBrowserJob(req, res, { artifactRoot }) {
     request: requestSummary,
     page: {
       requestedUrl,
-      finalUrl: urlPolicy.url.toString(),
-      title: '',
-      httpStatus: null,
+      finalUrl: captureResult.finalUrl,
+      title: captureResult.title,
+      httpStatus: captureResult.httpStatus,
       redirects: []
     },
     extraction: {
@@ -125,16 +133,17 @@ async function handleBrowserJob(req, res, { artifactRoot }) {
     artifacts: {
       directory: jobArtifacts.relative.directory,
       request: jobArtifacts.relative.request,
-      response: jobArtifacts.relative.response
+      response: jobArtifacts.relative.response,
+      screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null
     },
-    warnings: ['browser_execution_not_yet_connected']
+    warnings
   });
   await writeJsonFile(jobArtifacts.absolute.response, envelope);
   return writeJson(res, 200, envelope);
 }
 
 export function createServer(options = {}) {
-  const config = { artifactRoot: 'artifacts', ...options };
+  const config = { artifactRoot: 'artifacts', capturePage: runIsolatedCapturePage, ...options };
   return http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && req.url === '/health') {

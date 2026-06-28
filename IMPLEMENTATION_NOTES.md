@@ -4,15 +4,17 @@ Implementation has started from the approved small-service path. The first imple
 
 Verified on 2026-06-28:
 
-- `npm test` passes with 20 Node test-runner tests.
+- `npm test` passes with 23 Node test-runner tests.
 - `response-envelope.js` normalizes the implementation-spec top-level response shape, including `request`, `events`, and structured errors with `phase` / `retryable` metadata.
 - `artifacts.js` creates artifact-root-relative job paths, deterministic job directories, downloads directories, and JSON file writes.
+- `browser-capture.js` launches isolated Playwright capture, records final URL/title/status, writes a screenshot, and closes browser resources on success and failure.
 - `url-policy.js` validates absolute HTTP(S) URLs, blocks configured private/internal targets, rejects IPv4-mapped blocked IPv6 literals, and returns structured DNS-resolution failures before browser navigation.
 - `server.js` returns structured envelopes for `capturePage` requests, invalid URLs, blocked private/internal targets, and invalid actions.
 - Direct-run service defaults to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
 - Unknown actions return structured `invalid_action` errors.
 - Blocked targets return structured `private_network_denied` errors.
-- Browser execution is not connected yet; successful `capturePage` responses include the warning `browser_execution_not_yet_connected`.
+- Successful isolated `capturePage` responses now include real final URL/title/status data and a screenshot path only when the screenshot file exists.
+- Redirect-to-private enforcement after real navigation is still a remaining risk and must be handled before broader capture trust.
 
 ## Recommended HTTP JSON API contract
 

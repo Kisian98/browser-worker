@@ -34,7 +34,7 @@ Current rebuild/runtime-visible files under `/DATA/browser-stack` include:
 - `/DATA/browser-stack/test/response-envelope.test.js`
 - `/DATA/browser-stack/test/server.test.js`
 
-The service currently exposes `/health` and `POST /v1/browser/jobs`, and `npm test` verifies the structured response envelope. Browser execution is intentionally not connected yet.
+- Browser execution is now connected for the narrow isolated `capturePage` baseline: accepted public jobs launch Playwright, capture final URL/title/status, persist request/response JSON, and write a screenshot artifact when capture succeeds. HTML/text extraction, redirect re-checking, and broader browser actions are still intentionally not connected.
 
 ## Current file structure observed
 

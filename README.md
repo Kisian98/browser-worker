@@ -17,9 +17,10 @@ The current `/DATA/browser-stack` tree holds the planning/rebuild docs and the n
 
 Implementation has started. The current checked-in/runtime-visible pieces are:
 
-- `package.json` with `npm test` and `npm start` scripts.
+- `package.json` with `npm test` and `npm start` scripts plus Playwright dependency.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
 - `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
+- `browser-capture.js` for isolated Playwright `capturePage` execution and cleanup.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy.
 - `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
@@ -36,14 +37,16 @@ Known intended longer-term flow:
 host wrapper -> sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker -> node worker.js/server.js -> Playwright opens Chromium -> structured JSON job response
 ```
 
-The current service does not yet launch Playwright. Successful `capturePage` requests deliberately include `browser_execution_not_yet_connected` so callers do not mistake the skeleton envelope for real browser capture.
+The current service now launches isolated Playwright for accepted `capturePage` jobs, captures a real page title/final URL/HTTP status, and writes a screenshot artifact when capture succeeds. HTML/text extraction, broader browser actions, and session reuse are still intentionally not connected.
 
 ## Quick local commands
 
 ```bash
 npm test
+npx playwright install chromium
 PORT=3080 npm start
 curl -sS http://127.0.0.1:3080/health
+curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage"}'
 ```
 
 ## Documentation map
@@ -73,10 +76,10 @@ curl -sS http://127.0.0.1:3080/health
 
 ## Next implementation step
 
-Connect isolated Playwright `capturePage` in a narrow vertical slice that uses the existing URL policy, response envelope, and job artifact paths.
+Write real HTML/text artifacts and re-check URL policy after redirects/final navigation state before trusting broader capture output.
 
 After that:
 
-1. save requested screenshot/HTML/text/link/form/heading artifacts;
-2. re-check URL policy after redirects;
-3. add richer extraction metadata/signals.
+1. add richer extraction metadata/signals;
+2. handle dialogs/popups/download reporting deterministically;
+3. only then consider broader bounded browser actions.

@@ -10,6 +10,7 @@
     "test": "node --test",
     "start": "node server.js"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
 }

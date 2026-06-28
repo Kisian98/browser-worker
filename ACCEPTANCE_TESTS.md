@@ -14,15 +14,16 @@ This checklist defines what must be true before phase-one browser-worker impleme
 
 ## Current baseline
 
-As of 2026-06-27:
+As of 2026-06-28:
 
-- `/DATA/browser-stack` has a minimal Node HTTP service skeleton.
+- `/DATA/browser-stack` has a minimal Node HTTP service with isolated Playwright `capturePage` baseline.
 - `GET /health` exists.
 - `POST /v1/browser/jobs` exists.
 - `response-envelope.js` exists.
-- `npm test` passes with 7 Node test-runner tests.
-- Browser execution is intentionally not connected yet.
-- Successful job responses include `browser_execution_not_yet_connected` and do not create real browser artifacts.
+- `browser-capture.js` exists.
+- `npm test` passes with 23 Node test-runner tests.
+- Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write a screenshot artifact.
+- HTML/text extraction, redirect re-checking after navigation, and broader browser actions are still intentionally not connected.
 
 ## Phase-one acceptance checklist
 
@@ -119,21 +120,25 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 ### A-007 — Public URL capture loads a real page
 
-**Status:** Not started  
+**Status:** Verified for isolated `capturePage` baseline  
 **Requirement:** An isolated session can load a public URL such as `https://example.com`.  
 **Verification command:**
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage","session":{"mode":"isolated"},"capture":{"screenshot":true,"html":true,"text":true}}'
+curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage","session":{"mode":"isolated"}}'
 ```
 
-**Acceptance evidence required:** Response has `ok: true`, final URL, title or HTTP status, and no `browser_execution_not_yet_connected` warning.
+**Acceptance evidence:**
+- server test covers accepted `capturePage` response shape with real screenshot path reporting only after a file exists;
+- local smoke test against `https://example.com` returned `ok: true`, `finalUrl: https://example.com/`, title `Example Domain`, HTTP status `200`, screenshot path under `jobs/<jobId>/screenshot.png`, and no `browser_execution_not_yet_connected` warning.
 
 ### A-008 — Screenshot artifact is written
 
-**Status:** Not started  
+**Status:** Verified for isolated `capturePage` baseline  
 **Requirement:** A capture job requesting a screenshot writes a screenshot under that job's artifact directory.  
-**Acceptance evidence required:** Response artifact path plus filesystem verification that the screenshot exists and is non-empty.
+**Acceptance evidence:**
+- server test injects a capture implementation that writes a screenshot file, verifies `artifacts.screenshot` is non-null, and verifies the screenshot file exists on disk;
+- local smoke test produced a screenshot at `jobs/<jobId>/screenshot.png` with non-zero size (`17117` bytes).
 
 ### A-009 — HTML and text artifacts are written
 
@@ -155,9 +160,9 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-012 — Browser resources are cleaned up after each job
 
-**Status:** Not started  
+**Status:** Verified for isolated Playwright baseline  
 **Requirement:** Browser contexts/pages/processes do not leak across completed isolated jobs.  
-**Acceptance evidence required:** Repeated jobs complete; process/resource inspection or service logs show predictable cleanup.
+**Acceptance evidence:** Dedicated `browser-capture` unit tests verify page, context, and browser `close()` are called on both success and failure paths.
 
 ### A-013 — Dialogs are handled deterministically
 

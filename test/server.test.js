@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -81,25 +81,48 @@ test('POST /v1/browser/jobs rejects private-network targets with structured priv
 });
 
 test('POST /v1/browser/jobs returns structured envelope for capturePage requests', async () => {
-  await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
-    });
-    const body = await response.json();
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-capture-'));
 
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.status, 'completed');
-    assert.equal(body.request.action, 'capturePage');
-    assert.equal(body.request.sessionMode, 'isolated');
-    assert.equal(body.page.requestedUrl, 'https://example.com');
-    assert.equal(body.page.finalUrl, 'https://example.com/');
-    assert.deepEqual(body.events.dialogs, []);
-    assert.match(body.jobId, /^job-/);
-    assert.deepEqual(body.errors, []);
-  });
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.status, 'completed');
+      assert.equal(body.request.action, 'capturePage');
+      assert.equal(body.request.sessionMode, 'isolated');
+      assert.equal(body.page.requestedUrl, 'https://example.com');
+      assert.equal(body.page.finalUrl, 'https://example.com/final');
+      assert.equal(body.page.title, 'Example Domain');
+      assert.equal(body.page.httpStatus, 200);
+      assert.deepEqual(body.events.dialogs, []);
+      assert.match(body.jobId, /^job-/);
+      assert.deepEqual(body.errors, []);
+      assert.equal(body.warnings.includes('browser_execution_not_yet_connected'), false);
+      assert.equal(body.artifacts.screenshot, `${body.artifacts.directory}/screenshot.png`);
+      const screenshotStat = await stat(path.join(artifactRoot, body.artifacts.screenshot));
+      assert.equal(screenshotStat.isFile(), true);
+    }, {
+      artifactRoot,
+      capturePage: async ({ screenshotPath }) => {
+        await writeFile(screenshotPath, 'fake-image');
+        return {
+          finalUrl: 'https://example.com/final',
+          title: 'Example Domain',
+          httpStatus: 200,
+          screenshotCreated: true
+        };
+      }
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
 });
 
 test('POST /v1/browser/jobs creates job artifact directory and persists request and response JSON', async () => {
@@ -136,7 +159,43 @@ test('POST /v1/browser/jobs creates job artifact directory and persists request 
       const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
       assert.deepEqual(persistedRequest, requestPayload);
       assert.deepEqual(persistedResponse, body);
-    }, { artifactRoot });
+    }, {
+      artifactRoot,
+      capturePage: async () => ({
+        finalUrl: 'https://example.com/',
+        title: 'Example Domain',
+        httpStatus: 200,
+        screenshotCreated: false
+      })
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/browser/jobs keeps screenshot path null when no screenshot file exists', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-no-shot-'));
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.artifacts.screenshot, null);
+    }, {
+      artifactRoot,
+      capturePage: async () => ({
+        finalUrl: 'https://example.com/',
+        title: 'Example Domain',
+        httpStatus: 200,
+        screenshotCreated: true
+      })
+    });
   } finally {
     await rm(artifactRoot, { recursive: true, force: true });
   }
@@ -158,6 +217,13 @@ test('POST /v1/browser/jobs reports isolated as the effective session mode until
     assert.equal(response.status, 200);
     assert.equal(body.request.action, 'capturePage');
     assert.equal(body.request.sessionMode, 'isolated');
+  }, {
+    capturePage: async () => ({
+      finalUrl: 'https://example.com/',
+      title: 'Example Domain',
+      httpStatus: 200,
+      screenshotCreated: false
+    })
   });
 });
 
