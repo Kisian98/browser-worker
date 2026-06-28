@@ -40,11 +40,12 @@ test('evaluateUrlPolicy rejects metadata and RFC1918/private targets', async () 
   assert.equal(privateRange.error.code, 'private_network_denied');
 });
 
-test('evaluateUrlPolicy rejects IPv6 loopback, unique-local, and IPv4-mapped blocked targets', async () => {
+test('evaluateUrlPolicy rejects IPv6 loopback, unique-local, and true IPv4-mapped blocked targets', async () => {
   const ipv6Loopback = await evaluateUrlPolicy({ url: 'http://[::1]/' });
   const uniqueLocal = await evaluateUrlPolicy({ url: 'http://[fd00::1]/' });
   const mappedLoopback = await evaluateUrlPolicy({ url: 'http://[::ffff:127.0.0.1]/' });
   const mappedMetadata = await evaluateUrlPolicy({ url: 'http://[::ffff:169.254.169.254]/' });
+  const expandedMappedDottedLoopback = await evaluateUrlPolicy({ url: 'http://[0:0:0:0:0:ffff:127.0.0.1]/' });
   const expandedMappedLoopback = await evaluateUrlPolicy({ url: 'http://[0:0:0:0:0:ffff:7f00:1]/' });
   const paddedMappedLoopback = await evaluateUrlPolicy({ url: 'http://[0000:0000:0000:0000:0000:ffff:7f00:0001]/' });
   const expandedMappedMetadata = await evaluateUrlPolicy({ url: 'http://[0:0:0:0:0:ffff:a9fe:a9fe]/' });
@@ -57,12 +58,24 @@ test('evaluateUrlPolicy rejects IPv6 loopback, unique-local, and IPv4-mapped blo
   assert.equal(mappedLoopback.error.code, 'private_network_denied');
   assert.equal(mappedMetadata.ok, false);
   assert.equal(mappedMetadata.error.code, 'private_network_denied');
+  assert.equal(expandedMappedDottedLoopback.ok, false);
+  assert.equal(expandedMappedDottedLoopback.error.code, 'private_network_denied');
   assert.equal(expandedMappedLoopback.ok, false);
   assert.equal(expandedMappedLoopback.error.code, 'private_network_denied');
   assert.equal(paddedMappedLoopback.ok, false);
   assert.equal(paddedMappedLoopback.error.code, 'private_network_denied');
   assert.equal(expandedMappedMetadata.ok, false);
   assert.equal(expandedMappedMetadata.error.code, 'private_network_denied');
+});
+
+test('evaluateUrlPolicy does not misclassify non-mapped mixed IPv6 forms as mapped IPv4', async () => {
+  const result = await evaluateUrlPolicy({
+    url: 'http://public-v6.test/',
+    resolveHostname: async () => ['2001:db8::ffff:192.168.1.1']
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.resolvedAddresses, ['2001:db8::ffff:192.168.1.1']);
 });
 
 test('evaluateUrlPolicy returns structured invalid_url errors when DNS resolution fails', async () => {

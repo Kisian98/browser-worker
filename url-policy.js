@@ -65,8 +65,18 @@ function normalizeIpv6Hextets(address) {
 }
 
 function parseMappedIpv4(normalizedIpv6) {
-  const dottedMatch = normalizedIpv6.match(/^(.*:ffff:)(\d+\.\d+\.\d+\.\d+)$/);
-  if (dottedMatch) return dottedMatch[2];
+  const lastColon = normalizedIpv6.lastIndexOf(':');
+  const dottedSuffix = lastColon >= 0 ? normalizedIpv6.slice(lastColon + 1) : '';
+  const dottedIpv4 = /^(\d+\.\d+\.\d+\.\d+)$/.test(dottedSuffix) ? dottedSuffix : null;
+
+  if (dottedIpv4) {
+    const prefix = normalizedIpv6.slice(0, lastColon);
+    const hextets = normalizeIpv6Hextets(prefix);
+    if (!hextets) return null;
+    if (!hextets.slice(0, 5).every((part) => part === '0000')) return null;
+    if (hextets[5] !== 'ffff') return null;
+    return dottedIpv4;
+  }
 
   const hextets = normalizeIpv6Hextets(normalizedIpv6);
   if (!hextets) return null;
