@@ -112,9 +112,10 @@ The current rebuild has a minimal Node service skeleton:
 
 - `test/url-policy.test.js`
   - malformed and non-HTTP URL rejection
-  - localhost / loopback blocking
+  - localhost / loopback / unspecified-IPv4 blocking
   - metadata and RFC1918/private blocking
-  - IPv6 loopback and unique-local blocking
+  - IPv6 loopback / unique-local / IPv4-mapped blocked-target rejection
+  - structured DNS-resolution failure handling
   - blocked-hostname resolution
   - public target acceptance
 
@@ -129,8 +130,8 @@ npm test
 Result:
 
 ```text
-# tests 15
-# pass 15
+# tests 16
+# pass 16
 # fail 0
 ```
 

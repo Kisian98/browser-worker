@@ -118,7 +118,7 @@ Once real Playwright navigation exists, redirect targets and navigation-time URL
 
 **Acceptance evidence:**
 
-- Unit tests cover representative private/special IP and hostname cases.
+- Unit tests cover representative private/special IP and hostname cases, including `0.0.0.0`, IPv4-mapped IPv6 blocked targets, and DNS-resolution failure handling.
 - HTTP endpoint test covers loopback rejection.
 - Runtime smoke check shows loopback request returns structured `private_network_denied` before browser execution.
 - Future redirect-to-private test still needed before real browser navigation is connected.
