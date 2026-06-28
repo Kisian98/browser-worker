@@ -24,25 +24,31 @@ Implemented skeleton:
 - `package.json`
   - `npm test` -> `node --test`
   - `npm start` -> `node server.js`
+  - `engines.node >=20`
 - `response-envelope.js`
   - stable structured JSON response envelope
+- `url-policy.js`
+  - pre-navigation URL/private-network policy
+  - structured `invalid_url` / `private_network_denied` errors
 - `server.js`
   - `GET /health`
   - `POST /v1/browser/jobs`
-  - direct-run default `127.0.0.1:3080`
-  - basic JSON parsing and HTTP(S) URL validation
-  - action validation for `capturePage`
+  - JSON parsing, action validation, and URL/private-network policy
   - placeholder capture response with `browser_execution_not_yet_connected`
 - tests:
   - response envelope tests
   - server endpoint tests
+  - URL policy tests
+- repo hygiene:
+  - `.gitignore`
+  - `.nvmrc`
+  - GitHub Actions CI for `npm test`
 
 Not implemented yet:
 
 - Playwright launch from HTTP service
 - real navigation/capture
 - artifact writing
-- private-network blocking
 - session lifecycle
 - `storageState`
 - persistent profile support
@@ -87,18 +93,18 @@ Read these first:
 
 See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
-1. Private-network blocking is not implemented yet.
+1. Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
 2. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-3. The current response envelope is smaller than the detailed implementation spec; align it before external callers depend on it.
+3. Current response envelope is still smaller than `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`; align the contract before Hermes depends on it.
 4. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Start URL/private-network policy module with tests before any browser navigation.
-3. Deny loopback/private/link-local/metadata/internal-network targets with structured errors.
-4. Add redirect-to-private handling before connecting real Playwright capture.
-5. Align response-envelope fields with the detailed spec before Hermes depends on the current skeleton shape.
+2. Align structured errors and response-envelope fields with `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`.
+3. Add richer error metadata such as `phase` and `retryable`, plus missing envelope sections that Hermes will depend on.
+4. Add artifact root configuration and deterministic job directory writing.
+5. Persist `request.json` and `response.json`.
 6. Only then connect Playwright isolated capture in a vertical slice.
 
 ## Verification baseline

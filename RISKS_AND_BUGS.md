@@ -93,38 +93,35 @@ capturePage
 
 ---
 
-### RB-003 — Private-network blocking is not implemented yet
+### RB-003 — Private-network policy exists, but redirect enforcement still needs to be wired into real navigation
 
-**Status:** Open  
+**Status:** Watching  
 **Severity:** High  
 **Area:** security / URL policy  
-**Observed in:** `server.js`, `ACCEPTANCE_TESTS.md`, `TARGETED_RESEARCH_2026-06-27.md`
+**Observed in:** `url-policy.js`, `server.js`, `ACCEPTANCE_TESTS.md`
 
 **What we know:**
 
-Current URL validation only checks whether URLs are absolute HTTP(S). It does not yet deny localhost, private IP ranges, metadata IPs, Docker/internal ranges, or private-resolving hostnames.
+The worker now evaluates URL/private-network policy before the skeleton capture path accepts a request. Current policy:
 
-**Why it matters:**
+- validates absolute HTTP(S) URLs;
+- blocks localhost and loopback;
+- blocks RFC1918/private IPv4 ranges;
+- blocks link-local and metadata IPs;
+- blocks selected IPv6 loopback/unique-local/link-local/multicast ranges;
+- blocks hostnames that resolve to blocked IPs;
+- returns structured `private_network_denied` errors.
 
-The browser-worker must not become a browser path into private/internal network resources. Kristian prefers direct non-browser access for private data when needed.
+**What remains:**
 
-**Expected fix:**
-
-Create a URL policy module that:
-
-- parses URLs with the WHATWG `URL` API;
-- allows only `http` and `https`;
-- resolves hostnames;
-- classifies all returned IPs;
-- denies loopback, RFC1918, link-local, metadata, Docker/internal, multicast/special-use ranges as appropriate;
-- validates redirects during browser navigation;
-- returns structured policy errors such as `private_network_denied`.
+Once real Playwright navigation exists, redirect targets and navigation-time URL changes must also be checked so a public-looking start URL cannot bounce into a blocked/private destination.
 
 **Acceptance evidence:**
 
-- Unit tests for representative private/special IP and hostname cases.
-- Redirect-to-private test or controlled fixture.
-- `ACCEPTANCE_TESTS.md` A-006 satisfied.
+- Unit tests cover representative private/special IP and hostname cases.
+- HTTP endpoint test covers loopback rejection.
+- Runtime smoke check shows loopback request returns structured `private_network_denied` before browser execution.
+- Future redirect-to-private test still needed before real browser navigation is connected.
 
 ---
 

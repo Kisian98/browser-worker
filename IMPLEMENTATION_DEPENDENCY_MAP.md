@@ -163,10 +163,11 @@ Completed:
 
 1. Safe direct-run binding default: `127.0.0.1` / port `3080`, with explicit `BROWSER_WORKER_HOST` override.
 2. Action naming/validation: `capturePage` is the accepted phase-one action and unknown actions return structured `invalid_action` errors.
+3. URL/private-network policy: requests are screened before browser navigation and blocked targets return structured `private_network_denied` errors.
 
 Next:
 
-1. Add URL/private-network policy module with tests.
+1. Align structured errors and response-envelope fields with `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`.
 2. Add artifact root configuration and job directory writer.
 3. Persist request and response JSON.
 4. Add Playwright dependency/runtime proof.
