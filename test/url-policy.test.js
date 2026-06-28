@@ -45,6 +45,9 @@ test('evaluateUrlPolicy rejects IPv6 loopback, unique-local, and IPv4-mapped blo
   const uniqueLocal = await evaluateUrlPolicy({ url: 'http://[fd00::1]/' });
   const mappedLoopback = await evaluateUrlPolicy({ url: 'http://[::ffff:127.0.0.1]/' });
   const mappedMetadata = await evaluateUrlPolicy({ url: 'http://[::ffff:169.254.169.254]/' });
+  const expandedMappedLoopback = await evaluateUrlPolicy({ url: 'http://[0:0:0:0:0:ffff:7f00:1]/' });
+  const paddedMappedLoopback = await evaluateUrlPolicy({ url: 'http://[0000:0000:0000:0000:0000:ffff:7f00:0001]/' });
+  const expandedMappedMetadata = await evaluateUrlPolicy({ url: 'http://[0:0:0:0:0:ffff:a9fe:a9fe]/' });
 
   assert.equal(ipv6Loopback.ok, false);
   assert.equal(ipv6Loopback.error.code, 'private_network_denied');
@@ -54,6 +57,12 @@ test('evaluateUrlPolicy rejects IPv6 loopback, unique-local, and IPv4-mapped blo
   assert.equal(mappedLoopback.error.code, 'private_network_denied');
   assert.equal(mappedMetadata.ok, false);
   assert.equal(mappedMetadata.error.code, 'private_network_denied');
+  assert.equal(expandedMappedLoopback.ok, false);
+  assert.equal(expandedMappedLoopback.error.code, 'private_network_denied');
+  assert.equal(paddedMappedLoopback.ok, false);
+  assert.equal(paddedMappedLoopback.error.code, 'private_network_denied');
+  assert.equal(expandedMappedMetadata.ok, false);
+  assert.equal(expandedMappedMetadata.error.code, 'private_network_denied');
 });
 
 test('evaluateUrlPolicy returns structured invalid_url errors when DNS resolution fails', async () => {
@@ -78,10 +87,17 @@ test('evaluateUrlPolicy rejects hostnames that resolve to blocked IPs', async ()
     url: 'http://internal.test/',
     resolveHostname: async () => ['10.0.0.42']
   });
+  const mappedIpv6Result = await evaluateUrlPolicy({
+    url: 'http://internal-v6.test/',
+    resolveHostname: async () => ['0:0:0:0:0:ffff:7f00:1']
+  });
 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'private_network_denied');
   assert.equal(result.error.detail.host, 'internal.test');
+  assert.equal(mappedIpv6Result.ok, false);
+  assert.equal(mappedIpv6Result.error.code, 'private_network_denied');
+  assert.equal(mappedIpv6Result.error.detail.host, 'internal-v6.test');
 });
 
 test('evaluateUrlPolicy accepts public https targets', async () => {
