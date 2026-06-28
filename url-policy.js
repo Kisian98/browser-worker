@@ -28,6 +28,7 @@ function classifyIp(address) {
 
 function classifyIpv4(address) {
   const blockedCidrs = [
+    ['0.0.0.0', 32, 'loopback_denied'],
     ['127.0.0.0', 8, 'loopback_denied'],
     ['10.0.0.0', 8, 'private_network_denied'],
     ['172.16.0.0', 12, 'private_network_denied'],
@@ -47,8 +48,33 @@ function classifyIpv4(address) {
   return { blocked: false, reason: null };
 }
 
+function parseMappedIpv4(normalizedIpv6) {
+  const mappedPrefix = '::ffff:';
+  if (!normalizedIpv6.startsWith(mappedPrefix)) return null;
+
+  const suffix = normalizedIpv6.slice(mappedPrefix.length);
+  if (suffix.includes('.')) return suffix;
+
+  const parts = suffix.split(':');
+  if (parts.length !== 2) return null;
+
+  const values = parts.map((part) => Number.parseInt(part, 16));
+  if (values.some((value) => Number.isNaN(value) || value < 0 || value > 0xffff)) return null;
+
+  return [
+    values[0] >> 8,
+    values[0] & 0xff,
+    values[1] >> 8,
+    values[1] & 0xff
+  ].join('.');
+}
+
 function classifyIpv6(address) {
   const normalized = address.toLowerCase();
+  const mappedIpv4 = parseMappedIpv4(normalized);
+  if (mappedIpv4) {
+    return classifyIpv4(mappedIpv4);
+  }
 
   if (normalized === '::1') return { blocked: true, reason: 'loopback_denied' };
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
@@ -84,7 +110,24 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
   const host = url.hostname;
   const normalizedHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
   const literalVersion = net.isIP(normalizedHost);
-  const resolvedAddresses = literalVersion ? [normalizedHost] : await resolveHostname(normalizedHost);
+
+  let resolvedAddresses;
+  if (literalVersion) {
+    resolvedAddresses = [normalizedHost];
+  } else {
+    try {
+      resolvedAddresses = await resolveHostname(normalizedHost);
+    } catch {
+      return {
+        ok: false,
+        error: makeError(INVALID_URL, 'URL host could not be resolved', {
+          field: 'url',
+          host: normalizedHost,
+          reason: 'dns_resolution_failed'
+        })
+      };
+    }
+  }
 
   for (const address of resolvedAddresses) {
     const classification = classifyIp(address);

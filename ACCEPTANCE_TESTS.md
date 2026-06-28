@@ -112,7 +112,7 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 **Acceptance evidence:**
 
-- unit tests cover malformed/non-HTTP URLs, loopback, RFC1918/private, metadata, IPv6 loopback/unique-local, and hostnames resolving to blocked IPs;
+- unit tests cover malformed/non-HTTP URLs, loopback, `0.0.0.0`, RFC1918/private, metadata, IPv6 loopback/unique-local, IPv4-mapped blocked targets, DNS-resolution failure handling, and hostnames resolving to blocked IPs;
 - server test covers loopback rejection with structured `private_network_denied`;
 - runtime smoke check shows loopback target is denied before browser execution;
 - redirect-to-private enforcement still needs separate verification once real browser navigation exists.
