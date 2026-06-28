@@ -4,8 +4,8 @@ import net from 'node:net';
 const PRIVATE_NETWORK_DENIED = 'private_network_denied';
 const INVALID_URL = 'invalid_url';
 
-function makeError(code, message, detail = {}) {
-  return { code, message, detail };
+function makeError(code, message, detail = {}, phase = 'urlPolicy', retryable = false) {
+  return { code, message, phase, retryable, detail };
 }
 
 function isIpv4InCidr(address, networkAddress, prefixLength) {

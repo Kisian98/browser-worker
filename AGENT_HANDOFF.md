@@ -26,7 +26,9 @@ Implemented skeleton:
   - `npm start` -> `node server.js`
   - `engines.node >=20`
 - `response-envelope.js`
-  - stable structured JSON response envelope
+  - stable structured JSON response envelope aligned with the implementation-spec top-level contract
+  - includes `request`, `page`, `signals`, `extraction`, `artifacts`, `events`, `warnings`, and normalized structured `errors`
+  - default error metadata includes `phase` and `retryable`
 - `url-policy.js`
   - pre-navigation URL/private-network policy
   - structured `invalid_url` / `private_network_denied` errors
@@ -95,17 +97,14 @@ See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
 1. Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
 2. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-3. Current response envelope is still smaller than `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`; align the contract before Hermes depends on it.
-4. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
+3. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Align structured errors and response-envelope fields with `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`.
-3. Add richer error metadata such as `phase` and `retryable`, plus missing envelope sections that Hermes will depend on.
-4. Add artifact root configuration and deterministic job directory writing.
-5. Persist `request.json` and `response.json`.
-6. Only then connect Playwright isolated capture in a vertical slice.
+2. Add artifact root configuration and deterministic job directory writing.
+3. Persist `request.json` and `response.json`.
+4. Only then connect Playwright isolated capture in a vertical slice.
 
 ## Verification baseline
 

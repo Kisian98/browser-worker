@@ -20,7 +20,7 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `package.json` with `npm test` and `npm start` scripts.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
 - `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
-- `response-envelope.js` for a stable structured job response envelope.
+- `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy.
 - `server.js` with `/health` and `POST /v1/browser/jobs`.
 - direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
@@ -72,10 +72,10 @@ curl -sS http://127.0.0.1:3080/health
 
 ## Next implementation step
 
-Align the structured error shape and response envelope with `BROWSER_WORKER_IMPLEMENTATION_SPEC.md` before Hermes depends on the current skeleton contract.
+Add artifact root configuration and deterministic job directory writing, then persist `request.json` and `response.json` before connecting real Playwright capture.
 
 After that:
 
-1. add artifact root configuration and deterministic job directories;
-2. persist `request.json` and `response.json`;
-3. only then connect isolated Playwright `capturePage`.
+1. connect isolated Playwright `capturePage`;
+2. save requested screenshot/HTML/text/link/form/heading artifacts;
+3. re-check URL policy after redirects.

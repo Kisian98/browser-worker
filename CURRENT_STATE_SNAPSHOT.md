@@ -63,21 +63,23 @@ The current rebuild has a minimal Node service skeleton:
 
 - `response-envelope.js`
   - exports `createResponseEnvelope(...)`
-  - normalizes top-level response shape:
+  - normalizes implementation-spec top-level response shape:
     - `ok`
     - `jobId`
     - `startedAt`
     - `endedAt`
     - `durationMs`
     - `status`
+    - `request`
     - `page`
     - `signals`
     - `extraction`
     - `artifacts`
+    - `events`
     - `warnings`
     - `errors`
-  - provides defaults for page/signals/extraction/artifacts
-  - normalizes structured errors
+  - provides defaults for request/page/signals/extraction/artifacts/events
+  - normalizes structured errors with `phase`, `retryable`, and `detail` fields
 
 - `server.js`
   - exports `createServer()`
@@ -100,8 +102,9 @@ The current rebuild has a minimal Node service skeleton:
 ## Tests currently present
 
 - `test/response-envelope.test.js`
-  - success envelope shape/defaults
+  - spec-aligned success envelope shape/defaults
   - failed envelope with normalized errors
+  - default `phase` / `retryable` metadata for underspecified errors
 
 - `test/server.test.js`
   - listen config defaults and overrides
@@ -130,8 +133,8 @@ npm test
 Result:
 
 ```text
-# tests 16
-# pass 16
+# tests 18
+# pass 18
 # fail 0
 ```
 
@@ -259,4 +262,3 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 - Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
 - Browser execution is intentionally not connected yet; keep `browser_execution_not_yet_connected` visible until real capture works.
 - Decide whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.
-- Current `response-envelope.js` is still smaller than `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`; align the envelope before Hermes depends on the contract.
