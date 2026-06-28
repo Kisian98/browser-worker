@@ -64,14 +64,26 @@ function normalizeIpv6Hextets(address) {
   return expanded;
 }
 
+function ipv4ToMappedHextets(address) {
+  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4) return null;
+  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return null;
+
+  const upper = ((parts[0] << 8) | parts[1]).toString(16).padStart(4, '0');
+  const lower = ((parts[2] << 8) | parts[3]).toString(16).padStart(4, '0');
+  return [upper, lower];
+}
+
 function parseMappedIpv4(normalizedIpv6) {
   const lastColon = normalizedIpv6.lastIndexOf(':');
   const dottedSuffix = lastColon >= 0 ? normalizedIpv6.slice(lastColon + 1) : '';
   const dottedIpv4 = /^(\d+\.\d+\.\d+\.\d+)$/.test(dottedSuffix) ? dottedSuffix : null;
 
   if (dottedIpv4) {
+    const mappedHextets = ipv4ToMappedHextets(dottedIpv4);
+    if (!mappedHextets) return null;
     const prefix = normalizedIpv6.slice(0, lastColon);
-    const hextets = normalizeIpv6Hextets(prefix);
+    const hextets = normalizeIpv6Hextets(`${prefix}:${mappedHextets[0]}:${mappedHextets[1]}`);
     if (!hextets) return null;
     if (!hextets.slice(0, 5).every((part) => part === '0000')) return null;
     if (hextets[5] !== 'ffff') return null;

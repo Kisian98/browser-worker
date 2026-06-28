@@ -104,6 +104,14 @@ test('evaluateUrlPolicy rejects hostnames that resolve to blocked IPs', async ()
     url: 'http://internal-v6.test/',
     resolveHostname: async () => ['0:0:0:0:0:ffff:7f00:1']
   });
+  const mappedDottedLoopback = await evaluateUrlPolicy({
+    url: 'http://internal-v6-dotted.test/',
+    resolveHostname: async () => ['::ffff:127.0.0.1']
+  });
+  const mappedDottedMetadata = await evaluateUrlPolicy({
+    url: 'http://metadata-v6-dotted.test/',
+    resolveHostname: async () => ['::ffff:169.254.169.254']
+  });
 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'private_network_denied');
@@ -111,6 +119,12 @@ test('evaluateUrlPolicy rejects hostnames that resolve to blocked IPs', async ()
   assert.equal(mappedIpv6Result.ok, false);
   assert.equal(mappedIpv6Result.error.code, 'private_network_denied');
   assert.equal(mappedIpv6Result.error.detail.host, 'internal-v6.test');
+  assert.equal(mappedDottedLoopback.ok, false);
+  assert.equal(mappedDottedLoopback.error.code, 'private_network_denied');
+  assert.equal(mappedDottedLoopback.error.detail.host, 'internal-v6-dotted.test');
+  assert.equal(mappedDottedMetadata.ok, false);
+  assert.equal(mappedDottedMetadata.error.code, 'private_network_denied');
+  assert.equal(mappedDottedMetadata.error.detail.host, 'metadata-v6-dotted.test');
 });
 
 test('evaluateUrlPolicy accepts public https targets', async () => {
