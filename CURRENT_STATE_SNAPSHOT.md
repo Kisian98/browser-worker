@@ -57,7 +57,9 @@ The current rebuild has a minimal Node service skeleton:
   - scripts:
     - `npm test` -> `node --test`
     - `npm start` -> `node server.js`
-  - no dependencies currently declared
+  - engines:
+    - `node >=20`
+  - no runtime dependencies currently declared
 
 - `response-envelope.js`
   - exports `createResponseEnvelope(...)`
@@ -81,12 +83,19 @@ The current rebuild has a minimal Node service skeleton:
   - exports `createServer()`
   - exports `getListenConfig()`
   - `GET /health` returns minimal healthy JSON
-  - `POST /v1/browser/jobs` reads JSON, validates URL, and returns a structured envelope
+  - `POST /v1/browser/jobs` reads JSON, validates action, evaluates URL/private-network policy, and returns a structured envelope
   - valid capture responses currently include warning `browser_execution_not_yet_connected`
   - does not launch Playwright yet
   - does not create artifact directories yet
   - starts on `PORT` or `3080`, binding `127.0.0.1` by default
   - explicit host override available through `BROWSER_WORKER_HOST`
+
+- `url-policy.js`
+  - exports `evaluateUrlPolicy(...)`
+  - validates absolute HTTP(S) URLs
+  - blocks localhost, loopback, RFC1918/private IPv4, link-local, metadata, selected special-use IPv4 ranges, IPv6 loopback/unique-local/link-local/multicast ranges
+  - blocks hostnames that resolve to blocked IPs
+  - returns structured `invalid_url` and `private_network_denied` errors
 
 ## Tests currently present
 
@@ -97,12 +106,21 @@ The current rebuild has a minimal Node service skeleton:
 - `test/server.test.js`
   - listen config defaults and overrides
   - invalid URL produces structured failure envelope
+  - private-network target produces structured `private_network_denied` envelope
   - `capturePage` request produces structured envelope
   - unknown action produces structured `invalid_action` failure envelope
 
+- `test/url-policy.test.js`
+  - malformed and non-HTTP URL rejection
+  - localhost / loopback blocking
+  - metadata and RFC1918/private blocking
+  - IPv6 loopback and unique-local blocking
+  - blocked-hostname resolution
+  - public target acceptance
+
 ## Verified command output
 
-Command run from `/DATA/browser-stack` on 2026-06-27 after the action-validation slice:
+Command run from `/DATA/browser-stack` on 2026-06-28 after the URL-policy slice:
 
 ```bash
 npm test
@@ -111,19 +129,23 @@ npm test
 Result:
 
 ```text
-# tests 7
-# pass 7
+# tests 15
+# pass 15
 # fail 0
 ```
 
-Runtime smoke check:
+Runtime smoke checks:
 
 ```bash
 PORT=3080 npm start
-curl -sS http://127.0.0.1:3080/health
+curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"http://127.0.0.1:80/","action":"capturePage"}'
+curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage"}'
 ```
 
-Result: health endpoint returned `ok: true`, `service: browser-worker`, `version: 0.1.0`, `status: healthy`.
+Result:
+
+- loopback target returned structured `private_network_denied`
+- public `https://example.com` target still returned a successful skeleton envelope with `browser_execution_not_yet_connected`
 
 ## Git/repository state
 
@@ -190,7 +212,6 @@ Role: reference/fallback only. It should not be treated as the rebuild source of
 - Real navigation/capture behavior.
 - Screenshot/HTML/text artifact writing.
 - Request/response persistence under job artifact directories.
-- URL/private-network deny policy.
 - Session registry or lifecycle management.
 - `storageState` support.
 - Persistent profile support.
@@ -234,6 +255,7 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 
 ## Current risk notes
 
-- Private-network blocking is not implemented yet and must come before arbitrary browser navigation.
+- Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
 - Browser execution is intentionally not connected yet; keep `browser_execution_not_yet_connected` visible until real capture works.
 - Decide whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.
+- Current `response-envelope.js` is still smaller than `BROWSER_WORKER_IMPLEMENTATION_SPEC.md`; align the envelope before Hermes depends on the contract.

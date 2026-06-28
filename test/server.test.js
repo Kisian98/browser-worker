@@ -49,6 +49,24 @@ test('POST /v1/browser/jobs returns structured envelope for invalid URL errors',
   });
 });
 
+test('POST /v1/browser/jobs rejects private-network targets with structured private_network_denied errors', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:80/', action: 'capturePage' })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, 'failed');
+    assert.equal(body.page.requestedUrl, 'http://127.0.0.1:80/');
+    assert.equal(body.errors[0].code, 'private_network_denied');
+    assert.equal(body.errors[0].detail.field, 'url');
+  });
+});
+
 test('POST /v1/browser/jobs returns structured envelope for capturePage requests', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/browser/jobs`, {

@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 
 import { createResponseEnvelope } from './response-envelope.js';
+import { evaluateUrlPolicy } from './url-policy.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -25,18 +26,6 @@ async function readJson(req) {
   for await (const chunk of req) chunks.push(chunk);
   if (chunks.length === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
-
-function validateHttpUrl(value) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return { ok: false, message: 'URL must use http or https' };
-    }
-    return { ok: true, url };
-  } catch {
-    return { ok: false, message: 'URL must be a valid absolute URL' };
-  }
 }
 
 function validateAction(value) {
@@ -66,8 +55,8 @@ async function handleBrowserJob(req, res) {
   }
 
   const requestedUrl = requestBody.url ?? null;
-  const urlValidation = validateHttpUrl(requestedUrl);
-  if (!urlValidation.ok) {
+  const urlPolicy = await evaluateUrlPolicy({ url: requestedUrl });
+  if (!urlPolicy.ok) {
     const endedAt = nowIso();
     return writeJson(res, 400, createResponseEnvelope({
       ok: false,
@@ -76,7 +65,7 @@ async function handleBrowserJob(req, res) {
       endedAt,
       status: 'failed',
       page: { requestedUrl },
-      errors: [{ code: 'invalid_url', message: urlValidation.message, detail: { field: 'url' } }]
+      errors: [urlPolicy.error]
     }));
   }
 
@@ -102,7 +91,7 @@ async function handleBrowserJob(req, res) {
     endedAt,
     page: {
       requestedUrl,
-      finalUrl: urlValidation.url.toString(),
+      finalUrl: urlPolicy.url.toString(),
       title: '',
       httpStatus: null,
       redirects: []

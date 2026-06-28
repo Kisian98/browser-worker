@@ -100,7 +100,7 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 ### A-006 — Private-network URL is blocked by default
 
-**Status:** Not started  
+**Status:** Verified for pre-navigation request policy  
 **Requirement:** Requests for localhost, loopback, RFC1918/private ranges, link-local, metadata IPs, Docker/internal networks, and private-resolving hostnames are denied before browser navigation.  
 **Verification commands:**
 
@@ -110,7 +110,12 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"http://169.254.169.254/","action":"capturePage"}'
 ```
 
-**Acceptance evidence required:** HTTP 403 or 400 with structured `private_network_denied` / equivalent policy error and no browser launch.
+**Acceptance evidence:**
+
+- unit tests cover malformed/non-HTTP URLs, loopback, RFC1918/private, metadata, IPv6 loopback/unique-local, and hostnames resolving to blocked IPs;
+- server test covers loopback rejection with structured `private_network_denied`;
+- runtime smoke check shows loopback target is denied before browser execution;
+- redirect-to-private enforcement still needs separate verification once real browser navigation exists.
 
 ### A-007 — Public URL capture loads a real page
 

@@ -2,13 +2,15 @@
 
 Implementation has started from the approved small-service path. The first implemented runtime milestone is the structured response envelope plus a minimal HTTP service skeleton that exposes `/health` and `POST /v1/browser/jobs`.
 
-Verified on 2026-06-27:
+Verified on 2026-06-28:
 
-- `npm test` passes with 7 Node test-runner tests.
+- `npm test` passes with 15 Node test-runner tests.
 - `response-envelope.js` normalizes the stable response shape.
-- `server.js` returns structured envelopes for `capturePage` requests and validation failures.
+- `url-policy.js` validates absolute HTTP(S) URLs and blocks configured private/internal targets before browser navigation.
+- `server.js` returns structured envelopes for `capturePage` requests, invalid URLs, blocked private/internal targets, and invalid actions.
 - Direct-run service defaults to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
 - Unknown actions return structured `invalid_action` errors.
+- Blocked targets return structured `private_network_denied` errors.
 - Browser execution is not connected yet; successful `capturePage` responses include the warning `browser_execution_not_yet_connected`.
 
 ## Recommended HTTP JSON API contract
