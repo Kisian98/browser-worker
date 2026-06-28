@@ -165,21 +165,20 @@ Completed:
 2. Action naming/validation: `capturePage` is the accepted phase-one action and unknown actions return structured `invalid_action` errors.
 3. URL/private-network policy: requests are screened before browser navigation and blocked targets return structured `private_network_denied` errors.
 4. Response-envelope contract: top-level shape now includes request/events and errors include `phase` / `retryable` metadata.
+5. Artifact persistence foundation: accepted jobs create deterministic artifact directories and write `request.json` / `response.json`.
 
 Next:
 
-1. Add artifact root configuration and job directory writer.
-2. Persist request and response JSON.
-3. Add Playwright dependency/runtime proof.
-4. Implement isolated `capturePage` navigation.
-5. Write screenshot artifact.
-6. Write HTML/text artifacts.
-7. Add structured extraction metadata/signals.
-8. Add cleanup/lifecycle verification.
-9. Add Docker runtime path.
-10. Add `storageState` mode.
-11. Add named persistent profile support only after explicit approval.
-12. Apply container hardening after acceptance tests pass.
+1. Add Playwright dependency/runtime proof.
+2. Implement isolated `capturePage` navigation.
+3. Write screenshot artifact.
+4. Write HTML/text artifacts.
+5. Add structured extraction metadata/signals.
+6. Add cleanup/lifecycle verification.
+7. Add Docker runtime path.
+8. Add `storageState` mode.
+9. Add named persistent profile support only after explicit approval.
+10. Apply container hardening after acceptance tests pass.
 
 ## Blockers requiring Kristian input
 

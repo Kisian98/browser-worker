@@ -22,6 +22,7 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy.
+- `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
 - `server.js` with `/health` and `POST /v1/browser/jobs`.
 - direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
 - `capturePage` as the accepted phase-one action.
@@ -72,10 +73,10 @@ curl -sS http://127.0.0.1:3080/health
 
 ## Next implementation step
 
-Add artifact root configuration and deterministic job directory writing, then persist `request.json` and `response.json` before connecting real Playwright capture.
+Connect isolated Playwright `capturePage` in a narrow vertical slice that uses the existing URL policy, response envelope, and job artifact paths.
 
 After that:
 
-1. connect isolated Playwright `capturePage`;
-2. save requested screenshot/HTML/text/link/form/heading artifacts;
-3. re-check URL policy after redirects.
+1. save requested screenshot/HTML/text/link/form/heading artifacts;
+2. re-check URL policy after redirects;
+3. add richer extraction metadata/signals.

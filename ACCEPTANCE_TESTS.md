@@ -143,15 +143,15 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-010 — Request and response JSON are persisted
 
-**Status:** Not started  
+**Status:** Verified for accepted skeleton jobs  
 **Requirement:** Each job writes `request.json` and `response.json` into the job artifact directory.  
-**Acceptance evidence required:** Files exist, contain valid JSON, and correspond to the submitted request and returned envelope.
+**Acceptance evidence:** Server test creates a temporary artifact root, submits a valid `capturePage` skeleton request, verifies both files exist as valid JSON, checks `request.json` equals the submitted request, and checks `response.json` equals the returned envelope.
 
 ### A-011 — Response envelope points to correct artifact paths
 
-**Status:** Not started  
+**Status:** Verified for accepted skeleton jobs  
 **Requirement:** JSON responses include deterministic artifact directory/path metadata matching the files written on disk.  
-**Acceptance evidence required:** Compare response paths to actual filesystem paths.
+**Acceptance evidence:** Server test verifies `artifacts.directory` is `jobs/<jobId>`, `artifacts.request` and `artifacts.response` point under that directory, the job directory exists, and `downloads/` exists under the job directory.
 
 ### A-012 — Browser resources are cleaned up after each job
 
