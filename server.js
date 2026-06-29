@@ -104,10 +104,43 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   await prepareJobArtifacts(jobArtifacts);
   await writeJsonFile(jobArtifacts.absolute.request, requestBody);
 
-  const captureResult = await capturePage({
-    targetUrl: urlPolicy.url.toString(),
-    screenshotPath: jobArtifacts.absolute.screenshot
-  });
+  let captureResult;
+  try {
+    captureResult = await capturePage({
+      targetUrl: urlPolicy.url.toString(),
+      screenshotPath: jobArtifacts.absolute.screenshot
+    });
+  } catch (error) {
+    const screenshotCreated = await fileExists(jobArtifacts.absolute.screenshot);
+    const endedAt = nowIso();
+    const envelope = createResponseEnvelope({
+      ok: false,
+      jobId,
+      startedAt,
+      endedAt,
+      status: 'failed',
+      request: requestSummary,
+      page: {
+        requestedUrl,
+        finalUrl: null
+      },
+      artifacts: {
+        directory: jobArtifacts.relative.directory,
+        request: jobArtifacts.relative.request,
+        response: jobArtifacts.relative.response,
+        screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null
+      },
+      errors: [{
+        code: 'capture_failed',
+        message: 'Page capture failed before a browser result could be returned.',
+        phase: 'capture',
+        retryable: true
+      }]
+    });
+    await writeJsonFile(jobArtifacts.absolute.response, envelope);
+    return writeJson(res, 200, envelope);
+  }
+
   const screenshotCreated = captureResult.screenshotCreated && await fileExists(jobArtifacts.absolute.screenshot);
 
   const endedAt = nowIso();

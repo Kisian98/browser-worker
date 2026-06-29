@@ -58,7 +58,9 @@ test('POST /v1/browser/jobs returns structured envelope for invalid URL errors',
   });
 });
 
-test('POST /v1/browser/jobs rejects private-network targets with structured private_network_denied errors', async () => {
+test('POST /v1/browser/jobs rejects private-network targets with structured private_network_denied errors before browser work starts', async () => {
+  let captureInvoked = false;
+
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
       method: 'POST',
@@ -77,7 +79,14 @@ test('POST /v1/browser/jobs rejects private-network targets with structured priv
     assert.equal(body.errors[0].phase, 'urlPolicy');
     assert.equal(body.errors[0].retryable, false);
     assert.equal(body.errors[0].detail.field, 'url');
+  }, {
+    capturePage: async () => {
+      captureInvoked = true;
+      throw new Error('capture should not run for blocked targets');
+    }
   });
+
+  assert.equal(captureInvoked, false);
 });
 
 test('POST /v1/browser/jobs returns structured envelope for capturePage requests', async () => {
@@ -118,6 +127,49 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
           httpStatus: 200,
           screenshotCreated: true
         };
+      }
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/browser/jobs persists a structured failed envelope when capturePage throws', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-capture-failure-'));
+  const requestPayload = { url: 'https://example.com', action: 'capturePage' };
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(requestPayload)
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, false);
+      assert.equal(body.status, 'failed');
+      assert.equal(body.request.action, 'capturePage');
+      assert.equal(body.request.sessionMode, 'isolated');
+      assert.equal(body.page.requestedUrl, 'https://example.com');
+      assert.equal(body.page.finalUrl, null);
+      assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
+      assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
+      assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.errors[0].code, 'capture_failed');
+      assert.equal(body.errors[0].phase, 'capture');
+      assert.equal(body.errors[0].retryable, true);
+      assert.equal(body.errors[0].message, 'Page capture failed before a browser result could be returned.');
+
+      const persistedRequest = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.request), 'utf8'));
+      const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
+      assert.deepEqual(persistedRequest, requestPayload);
+      assert.deepEqual(persistedResponse, body);
+    }, {
+      artifactRoot,
+      capturePage: async () => {
+        throw new Error('playwright blew up with internal stack details');
       }
     });
   } finally {
