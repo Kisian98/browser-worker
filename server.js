@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 
@@ -35,6 +36,10 @@ function validateAction(value) {
     return { ok: false, message: 'Action must be capturePage' };
   }
   return { ok: true, action: value };
+}
+
+async function removeFileIfPresent(path) {
+  await rm(path, { force: true });
 }
 
 async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
@@ -142,6 +147,51 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   }
 
   const screenshotCreated = captureResult.screenshotCreated && await fileExists(jobArtifacts.absolute.screenshot);
+  const finalUrlPolicy = captureResult.finalUrl
+    ? await evaluateUrlPolicy({ url: captureResult.finalUrl })
+    : { ok: true };
+
+  if (!finalUrlPolicy.ok) {
+    if (screenshotCreated) {
+      await removeFileIfPresent(jobArtifacts.absolute.screenshot);
+    }
+
+    const endedAt = nowIso();
+    const blockedByPrivateNetwork = finalUrlPolicy.error.code === 'private_network_denied';
+    const envelope = createResponseEnvelope({
+      ok: false,
+      jobId,
+      startedAt,
+      endedAt,
+      status: blockedByPrivateNetwork ? 'blocked' : 'failed',
+      request: requestSummary,
+      page: {
+        requestedUrl,
+        finalUrl: null
+      },
+      signals: {
+        blocked: blockedByPrivateNetwork,
+        privateNetworkDenied: blockedByPrivateNetwork
+      },
+      artifacts: {
+        directory: jobArtifacts.relative.directory,
+        request: jobArtifacts.relative.request,
+        response: jobArtifacts.relative.response,
+        screenshot: null
+      },
+      errors: [{
+        code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : finalUrlPolicy.error.code,
+        message: blockedByPrivateNetwork
+          ? 'Final navigated URL was blocked by private-network policy.'
+          : finalUrlPolicy.error.message,
+        phase: 'postNavigationPolicy',
+        retryable: false,
+        detail: finalUrlPolicy.error.detail
+      }]
+    });
+    await writeJsonFile(jobArtifacts.absolute.response, envelope);
+    return writeJson(res, 200, envelope);
+  }
 
   const endedAt = nowIso();
   const warnings = [];

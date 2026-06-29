@@ -177,6 +177,56 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
   }
 });
 
+test('POST /v1/browser/jobs blocks redirected private final URLs after navigation and persists the blocked envelope', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-redirected-private-'));
+  const requestPayload = { url: 'https://example.com', action: 'capturePage' };
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(requestPayload)
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, false);
+      assert.equal(body.status, 'blocked');
+      assert.equal(body.request.action, 'capturePage');
+      assert.equal(body.request.sessionMode, 'isolated');
+      assert.equal(body.page.requestedUrl, 'https://example.com');
+      assert.equal(body.page.finalUrl, null);
+      assert.equal(body.signals.blocked, true);
+      assert.equal(body.signals.privateNetworkDenied, true);
+      assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
+      assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
+      assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.errors[0].code, 'redirected_private_network_denied');
+      assert.equal(body.errors[0].phase, 'postNavigationPolicy');
+      assert.equal(body.errors[0].retryable, false);
+
+      const persistedRequest = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.request), 'utf8'));
+      const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
+      assert.deepEqual(persistedRequest, requestPayload);
+      assert.deepEqual(persistedResponse, body);
+    }, {
+      artifactRoot,
+      capturePage: async ({ screenshotPath }) => {
+        await writeFile(screenshotPath, 'private-image-should-not-be-reported');
+        return {
+          finalUrl: 'http://127.0.0.1:8080/internal',
+          title: 'Internal Target',
+          httpStatus: 200,
+          screenshotCreated: true
+        };
+      }
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
 test('POST /v1/browser/jobs creates job artifact directory and persists request and response JSON', async () => {
   const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-artifacts-'));
   const requestPayload = { url: 'https://example.com', action: 'capturePage' };
