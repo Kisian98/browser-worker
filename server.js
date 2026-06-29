@@ -147,6 +147,39 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   }
 
   const screenshotCreated = captureResult.screenshotCreated && await fileExists(jobArtifacts.absolute.screenshot);
+
+  if (captureResult.policyBlocked) {
+    await removeFileIfPresent(jobArtifacts.absolute.screenshot);
+
+    const endedAt = nowIso();
+    const blockedByPrivateNetwork = captureResult.policyError?.code === 'redirected_private_network_denied';
+    const envelope = createResponseEnvelope({
+      ok: false,
+      jobId,
+      startedAt,
+      endedAt,
+      status: blockedByPrivateNetwork ? 'blocked' : 'failed',
+      request: requestSummary,
+      page: {
+        requestedUrl,
+        finalUrl: null
+      },
+      signals: {
+        blocked: blockedByPrivateNetwork,
+        privateNetworkDenied: blockedByPrivateNetwork
+      },
+      artifacts: {
+        directory: jobArtifacts.relative.directory,
+        request: jobArtifacts.relative.request,
+        response: jobArtifacts.relative.response,
+        screenshot: null
+      },
+      errors: [captureResult.policyError]
+    });
+    await writeJsonFile(jobArtifacts.absolute.response, envelope);
+    return writeJson(res, 200, envelope);
+  }
+
   const finalUrlPolicy = captureResult.finalUrl
     ? await evaluateUrlPolicy({ url: captureResult.finalUrl })
     : { ok: true };
