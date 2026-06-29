@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
 
 import { evaluateUrlPolicy } from './url-policy.js';
 
@@ -19,6 +19,8 @@ export async function fileExists(path) {
 export async function runIsolatedCapturePage({
   targetUrl,
   screenshotPath,
+  htmlPath,
+  textPath,
   launchBrowser = defaultLaunchBrowser,
   evaluatePolicy = evaluateUrlPolicy
 }) {
@@ -109,12 +111,23 @@ export async function runIsolatedCapturePage({
       };
     }
 
+    const html = await page.content();
+    await writeFile(htmlPath, html, 'utf8');
+
+    const text = await page.locator('body').evaluate((body) => {
+      const value = body?.innerText ?? '';
+      return value.trim();
+    }).catch(() => '');
+    await writeFile(textPath, text, 'utf8');
+
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
     return {
       finalUrl,
       title: await page.title(),
       httpStatus: response?.status?.() ?? null,
+      htmlCreated: await fileExists(htmlPath),
+      textCreated: await fileExists(textPath),
       screenshotCreated: await fileExists(screenshotPath)
     };
   } finally {
