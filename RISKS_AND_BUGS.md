@@ -125,36 +125,32 @@ Once real Playwright navigation exists, redirect targets and navigation-time URL
 
 ---
 
-### RB-004 — Browser execution is intentionally not connected
+### RB-004 — Browser execution baseline is connected, but extraction and redirect re-checking are still incomplete
 
-**Status:** Watching  
+**Status:** Resolved for isolated capture baseline / Watching  
 **Severity:** Medium  
 **Area:** implementation state / false-confidence risk  
 **Observed in:** `server.js`, `IMPLEMENTATION_NOTES.md`, `CURRENT_STATE_SNAPSHOT.md`
 
 **What we know:**
 
-Current successful job responses include:
-
-```text
-browser_execution_not_yet_connected
-```
-
-No Playwright browser launch, navigation, screenshot, extraction, or artifact writing exists yet.
+Accepted `capturePage` jobs now launch isolated Playwright, capture final URL/title/HTTP status, write a screenshot artifact when present, and persist `response.json` for accepted capture failures with a structured `capture_failed` envelope.
 
 **Why it matters:**
 
-This is fine for the skeleton, but it must stay visible so nobody mistakes the service skeleton for a working browser worker.
+The service is now a real narrow capture baseline, but it still should not be mistaken for a fuller worker until extraction artifacts and redirect-to-private enforcement are wired in.
 
 **Expected fix:**
 
-Keep the warning until real Playwright execution and artifact writing exist. Remove only when acceptance tests prove real capture behavior.
+Use the isolated capture baseline as the new floor, then add HTML/text artifacts and redirect/final-URL policy re-checking before expanding capability.
 
 **Acceptance evidence:**
 
 - Public URL capture loads through Playwright.
-- Response no longer includes `browser_execution_not_yet_connected` for implemented capture path.
-- Screenshot/text/HTML artifacts verified.
+- Accepted capture response includes real final URL/title/HTTP status.
+- Screenshot artifact is reported only when the file exists.
+- Accepted capture failures return structured `capture_failed` data and persist `response.json`.
+- HTML/text artifacts are still pending.
 
 ---
 

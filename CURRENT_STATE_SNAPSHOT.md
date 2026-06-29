@@ -122,8 +122,9 @@ The current rebuild has a minimal Node service skeleton:
 - `test/server.test.js`
   - listen config defaults and overrides, including artifact root
   - invalid URL produces structured failure envelope
-  - private-network target produces structured `private_network_denied` envelope
+  - private-network target produces structured `private_network_denied` envelope before browser work starts
   - `capturePage` request produces structured envelope with screenshot path only after a file exists
+  - accepted capture failure persists a structured `capture_failed` envelope to `response.json`
   - accepted job creates artifact directory and persists `request.json` / `response.json`
   - screenshot path stays null if the capture layer reports success but no file exists
   - unsupported requested session mode still reports effective `isolated`
@@ -153,8 +154,8 @@ npm test
 Result:
 
 ```text
-# tests 23
-# pass 23
+# tests 24
+# pass 24
 # fail 0
 ```
 
@@ -210,7 +211,7 @@ Kristian approved port `3080` if available. A local bind test on 2026-06-27 conf
 port_3080_available_on_127.0.0.1=yes
 ```
 
-Phase-one service binding should be localhost/internal-only. Current `server.js` direct-run binding to `0.0.0.0` remains a known fix-before-runtime item.
+Phase-one service binding is localhost/internal-only by default. `server.js` now binds `127.0.0.1` unless `BROWSER_WORKER_HOST` is explicitly overridden.
 
 ## Old shell/demo runtime state
 
@@ -277,6 +278,6 @@ sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker
 
 ## Current risk notes
 
-- Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
-- Browser execution is intentionally not connected yet; keep `browser_execution_not_yet_connected` visible until real capture works.
+- Redirect-to-private enforcement still needs to be wired into real browser navigation before final navigation state is trusted.
+- Real isolated Playwright capture is connected now; HTML/text extraction and redirect re-checking are the next missing pieces.
 - Decide whether future `agent-runs/` logs should remain tracked, be ignored, or be reduced to curated summaries.

@@ -4,7 +4,7 @@ Implementation has started from the approved small-service path. The first imple
 
 Verified on 2026-06-28:
 
-- `npm test` passes with 23 Node test-runner tests.
+- `npm test` passes with 24 Node test-runner tests.
 - `response-envelope.js` normalizes the implementation-spec top-level response shape, including `request`, `events`, and structured errors with `phase` / `retryable` metadata.
 - `artifacts.js` creates artifact-root-relative job paths, deterministic job directories, downloads directories, and JSON file writes.
 - `browser-capture.js` launches isolated Playwright capture, records final URL/title/status, writes a screenshot, and closes browser resources on success and failure.

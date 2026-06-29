@@ -21,7 +21,7 @@ As of 2026-06-28:
 - `POST /v1/browser/jobs` exists.
 - `response-envelope.js` exists.
 - `browser-capture.js` exists.
-- `npm test` passes with 23 Node test-runner tests.
+- `npm test` passes with 24 Node test-runner tests.
 - Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write a screenshot artifact.
 - HTML/text extraction, redirect re-checking after navigation, and broader browser actions are still intentionally not connected.
 
