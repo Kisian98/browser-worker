@@ -152,9 +152,7 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
     : { ok: true };
 
   if (!finalUrlPolicy.ok) {
-    if (screenshotCreated) {
-      await removeFileIfPresent(jobArtifacts.absolute.screenshot);
-    }
+    await removeFileIfPresent(jobArtifacts.absolute.screenshot);
 
     const endedAt = nowIso();
     const blockedByPrivateNetwork = finalUrlPolicy.error.code === 'private_network_denied';

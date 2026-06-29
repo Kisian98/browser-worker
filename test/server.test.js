@@ -177,7 +177,7 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
   }
 });
 
-test('POST /v1/browser/jobs blocks redirected private final URLs after navigation and persists the blocked envelope', async () => {
+test('POST /v1/browser/jobs blocks redirected private final URLs after navigation and deletes any screenshot file before persisting the blocked envelope', async () => {
   const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-redirected-private-'));
   const requestPayload = { url: 'https://example.com', action: 'capturePage' };
 
@@ -210,6 +210,7 @@ test('POST /v1/browser/jobs blocks redirected private final URLs after navigatio
       const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
       assert.deepEqual(persistedRequest, requestPayload);
       assert.deepEqual(persistedResponse, body);
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'screenshot.png')));
     }, {
       artifactRoot,
       capturePage: async ({ screenshotPath }) => {
@@ -218,7 +219,7 @@ test('POST /v1/browser/jobs blocks redirected private final URLs after navigatio
           finalUrl: 'http://127.0.0.1:8080/internal',
           title: 'Internal Target',
           httpStatus: 200,
-          screenshotCreated: true
+          screenshotCreated: false
         };
       }
     });
