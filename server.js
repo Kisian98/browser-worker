@@ -42,6 +42,14 @@ async function removeFileIfPresent(path) {
   await rm(path, { force: true });
 }
 
+async function removeArtifactFiles(jobArtifacts) {
+  await Promise.all([
+    removeFileIfPresent(jobArtifacts.absolute.screenshot),
+    removeFileIfPresent(jobArtifacts.absolute.html),
+    removeFileIfPresent(jobArtifacts.absolute.text)
+  ]);
+}
+
 function normalizePostNavigationPolicyError(policyError) {
   const blockedByPrivateNetwork = policyError?.code === 'private_network_denied'
     || policyError?.code === 'redirected_private_network_denied';
@@ -65,7 +73,7 @@ async function writeBlockedPolicyEnvelope(res, {
   requestedUrl,
   policyError
 }) {
-  await removeFileIfPresent(jobArtifacts.absolute.screenshot);
+  await removeArtifactFiles(jobArtifacts);
 
   const normalizedPolicyError = normalizePostNavigationPolicyError(policyError);
   const blockedByPrivateNetwork = normalizedPolicyError.code === 'redirected_private_network_denied';
@@ -89,7 +97,9 @@ async function writeBlockedPolicyEnvelope(res, {
       directory: jobArtifacts.relative.directory,
       request: jobArtifacts.relative.request,
       response: jobArtifacts.relative.response,
-      screenshot: null
+      screenshot: null,
+      html: null,
+      text: null
     },
     errors: [normalizedPolicyError]
   });
@@ -168,9 +178,12 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   try {
     captureResult = await capturePage({
       targetUrl: urlPolicy.url.toString(),
-      screenshotPath: jobArtifacts.absolute.screenshot
+      screenshotPath: jobArtifacts.absolute.screenshot,
+      htmlPath: jobArtifacts.absolute.html,
+      textPath: jobArtifacts.absolute.text
     });
   } catch (error) {
+    await removeArtifactFiles(jobArtifacts);
     const screenshotCreated = await fileExists(jobArtifacts.absolute.screenshot);
     const endedAt = nowIso();
     const envelope = createResponseEnvelope({
@@ -188,7 +201,9 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
         directory: jobArtifacts.relative.directory,
         request: jobArtifacts.relative.request,
         response: jobArtifacts.relative.response,
-        screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null
+        screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null,
+        html: null,
+        text: null
       },
       errors: [{
         code: 'capture_failed',
@@ -253,7 +268,9 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
       directory: jobArtifacts.relative.directory,
       request: jobArtifacts.relative.request,
       response: jobArtifacts.relative.response,
-      screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null
+      screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null,
+      html: await fileExists(jobArtifacts.absolute.html) ? jobArtifacts.relative.html : null,
+      text: await fileExists(jobArtifacts.absolute.text) ? jobArtifacts.relative.text : null
     },
     warnings
   });
