@@ -42,6 +42,61 @@ async function removeFileIfPresent(path) {
   await rm(path, { force: true });
 }
 
+function normalizePostNavigationPolicyError(policyError) {
+  const blockedByPrivateNetwork = policyError?.code === 'private_network_denied'
+    || policyError?.code === 'redirected_private_network_denied';
+
+  return {
+    code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : policyError.code,
+    message: policyError.code === 'private_network_denied'
+      ? 'Final navigated URL was blocked by private-network policy.'
+      : policyError.message,
+    phase: policyError.phase ?? 'postNavigationPolicy',
+    retryable: false,
+    detail: policyError.detail
+  };
+}
+
+async function writeBlockedPolicyEnvelope(res, {
+  jobArtifacts,
+  jobId,
+  startedAt,
+  requestSummary,
+  requestedUrl,
+  policyError
+}) {
+  await removeFileIfPresent(jobArtifacts.absolute.screenshot);
+
+  const normalizedPolicyError = normalizePostNavigationPolicyError(policyError);
+  const blockedByPrivateNetwork = normalizedPolicyError.code === 'redirected_private_network_denied';
+  const endedAt = nowIso();
+  const envelope = createResponseEnvelope({
+    ok: false,
+    jobId,
+    startedAt,
+    endedAt,
+    status: blockedByPrivateNetwork ? 'blocked' : 'failed',
+    request: requestSummary,
+    page: {
+      requestedUrl,
+      finalUrl: null
+    },
+    signals: {
+      blocked: blockedByPrivateNetwork,
+      privateNetworkDenied: blockedByPrivateNetwork
+    },
+    artifacts: {
+      directory: jobArtifacts.relative.directory,
+      request: jobArtifacts.relative.request,
+      response: jobArtifacts.relative.response,
+      screenshot: null
+    },
+    errors: [normalizedPolicyError]
+  });
+  await writeJsonFile(jobArtifacts.absolute.response, envelope);
+  return writeJson(res, 200, envelope);
+}
+
 async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   const jobId = makeJobId();
   const startedAt = nowIso();
@@ -149,35 +204,14 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   const screenshotCreated = captureResult.screenshotCreated && await fileExists(jobArtifacts.absolute.screenshot);
 
   if (captureResult.policyBlocked) {
-    await removeFileIfPresent(jobArtifacts.absolute.screenshot);
-
-    const endedAt = nowIso();
-    const blockedByPrivateNetwork = captureResult.policyError?.code === 'redirected_private_network_denied';
-    const envelope = createResponseEnvelope({
-      ok: false,
+    return writeBlockedPolicyEnvelope(res, {
+      jobArtifacts,
       jobId,
       startedAt,
-      endedAt,
-      status: blockedByPrivateNetwork ? 'blocked' : 'failed',
-      request: requestSummary,
-      page: {
-        requestedUrl,
-        finalUrl: null
-      },
-      signals: {
-        blocked: blockedByPrivateNetwork,
-        privateNetworkDenied: blockedByPrivateNetwork
-      },
-      artifacts: {
-        directory: jobArtifacts.relative.directory,
-        request: jobArtifacts.relative.request,
-        response: jobArtifacts.relative.response,
-        screenshot: null
-      },
-      errors: [captureResult.policyError]
+      requestSummary,
+      requestedUrl,
+      policyError: captureResult.policyError
     });
-    await writeJsonFile(jobArtifacts.absolute.response, envelope);
-    return writeJson(res, 200, envelope);
   }
 
   const finalUrlPolicy = captureResult.finalUrl
@@ -185,43 +219,14 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
     : { ok: true };
 
   if (!finalUrlPolicy.ok) {
-    await removeFileIfPresent(jobArtifacts.absolute.screenshot);
-
-    const endedAt = nowIso();
-    const blockedByPrivateNetwork = finalUrlPolicy.error.code === 'private_network_denied';
-    const envelope = createResponseEnvelope({
-      ok: false,
+    return writeBlockedPolicyEnvelope(res, {
+      jobArtifacts,
       jobId,
       startedAt,
-      endedAt,
-      status: blockedByPrivateNetwork ? 'blocked' : 'failed',
-      request: requestSummary,
-      page: {
-        requestedUrl,
-        finalUrl: null
-      },
-      signals: {
-        blocked: blockedByPrivateNetwork,
-        privateNetworkDenied: blockedByPrivateNetwork
-      },
-      artifacts: {
-        directory: jobArtifacts.relative.directory,
-        request: jobArtifacts.relative.request,
-        response: jobArtifacts.relative.response,
-        screenshot: null
-      },
-      errors: [{
-        code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : finalUrlPolicy.error.code,
-        message: blockedByPrivateNetwork
-          ? 'Final navigated URL was blocked by private-network policy.'
-          : finalUrlPolicy.error.message,
-        phase: 'postNavigationPolicy',
-        retryable: false,
-        detail: finalUrlPolicy.error.detail
-      }]
+      requestSummary,
+      requestedUrl,
+      policyError: finalUrlPolicy.error
     });
-    await writeJsonFile(jobArtifacts.absolute.response, envelope);
-    return writeJson(res, 200, envelope);
   }
 
   const endedAt = nowIso();
