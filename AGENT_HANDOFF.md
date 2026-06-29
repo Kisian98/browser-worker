@@ -121,4 +121,4 @@ cd /DATA/browser-stack
 npm test
 ```
 
-Expected current result: 23 tests pass, 0 fail.
+Expected current result: 24 tests pass, 0 fail.
