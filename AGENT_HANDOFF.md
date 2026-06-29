@@ -37,11 +37,14 @@ Implemented skeleton:
   - per-job directory creation
   - `downloads/` directory creation
   - formatted JSON file writes
+- `browser-capture.js`
+  - isolated Playwright `capturePage` runner
+  - browser/context/page cleanup on success and failure
+  - screenshot write + existence check
 - `server.js`
   - `GET /health`
   - `POST /v1/browser/jobs`
-  - JSON parsing, action validation, and URL/private-network policy
-  - placeholder capture response with `browser_execution_not_yet_connected`
+  - JSON parsing, action validation, URL/private-network policy, isolated capture execution, and artifact persistence
 - tests:
   - response envelope tests
   - server endpoint tests
@@ -53,10 +56,9 @@ Implemented skeleton:
 
 Not implemented yet:
 
-- Playwright launch from HTTP service
-- real navigation/capture
-- artifact writing
-- session lifecycle
+- HTML/text extraction and artifact writing
+- redirect-to-private enforcement after real navigation/redirect chains
+- session lifecycle beyond isolated per-job contexts
 - `storageState`
 - persistent profile support
 - Dockerized rebuild runtime
@@ -100,16 +102,15 @@ Read these first:
 
 See `RISKS_AND_BUGS.md`. Highest-priority early risks:
 
-1. Redirect-to-private enforcement still needs to be wired into real browser navigation before Playwright capture is connected.
-2. Browser execution is intentionally not connected yet; keep warning visible until real Playwright capture works.
-3. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
+1. Redirect-to-private enforcement still needs to be wired into real browser navigation before final navigation state is trusted.
+2. Decide whether future `agent-runs/` logs should stay tracked or be ignored after curated summaries.
 
 ## Recommended next implementation steps
 
 1. Create the next implementation branch from `main`.
-2. Connect Playwright isolated capture in a narrow vertical slice using the existing URL policy, envelope, and artifact paths.
-3. Write screenshot/HTML/text artifacts.
-4. Re-check URL policy after redirects before trusting final navigation state.
+2. Write real HTML/text artifacts behind the existing isolated capture path.
+3. Re-check URL policy after redirects/final navigation state before trusting broader capture output.
+4. Add richer extraction metadata/signals only after the redirect boundary is covered.
 
 ## Verification baseline
 
@@ -120,4 +121,4 @@ cd /DATA/browser-stack
 npm test
 ```
 
-Expected current result: 20 tests pass, 0 fail.
+Expected current result: 23 tests pass, 0 fail.

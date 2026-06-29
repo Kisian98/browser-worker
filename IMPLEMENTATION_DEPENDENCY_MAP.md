@@ -166,19 +166,18 @@ Completed:
 3. URL/private-network policy: requests are screened before browser navigation and blocked targets return structured `private_network_denied` errors.
 4. Response-envelope contract: top-level shape now includes request/events and errors include `phase` / `retryable` metadata.
 5. Artifact persistence foundation: accepted jobs create deterministic artifact directories and write `request.json` / `response.json`.
+6. Isolated Playwright baseline: accepted `capturePage` jobs launch a fresh browser context, capture final URL/title/status, write a screenshot, and close browser resources on success/failure.
 
 Next:
 
-1. Add Playwright dependency/runtime proof.
-2. Implement isolated `capturePage` navigation.
-3. Write screenshot artifact.
-4. Write HTML/text artifacts.
-5. Add structured extraction metadata/signals.
-6. Add cleanup/lifecycle verification.
-7. Add Docker runtime path.
-8. Add `storageState` mode.
-9. Add named persistent profile support only after explicit approval.
-10. Apply container hardening after acceptance tests pass.
+1. Write HTML/text artifacts.
+2. Re-check URL policy after redirects/final navigation state.
+3. Add structured extraction metadata/signals.
+4. Add deterministic dialog/popup/download reporting.
+5. Add Docker runtime path.
+6. Add `storageState` mode.
+7. Add named persistent profile support only after explicit approval.
+8. Apply container hardening after acceptance tests pass.
 
 ## Blockers requiring Kristian input
 

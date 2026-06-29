@@ -40,6 +40,7 @@ TARGETED_RESEARCH_2026-06-27.md
 TODAY_GOALS_2026-06-27.md
 package.json
 artifacts.js
+browser-capture.js
 response-envelope.js
 server.js
 test/response-envelope.test.js
@@ -60,7 +61,8 @@ The current rebuild has a minimal Node service skeleton:
     - `npm start` -> `node server.js`
   - engines:
     - `node >=20`
-  - no runtime dependencies currently declared
+  - runtime dependency:
+    - `playwright`
 
 - `response-envelope.js`
   - exports `createResponseEnvelope(...)`
@@ -86,9 +88,8 @@ The current rebuild has a minimal Node service skeleton:
   - exports `createServer()`
   - exports `getListenConfig()`
   - `GET /health` returns minimal healthy JSON
-  - `POST /v1/browser/jobs` reads JSON, validates action, evaluates URL/private-network policy, writes `request.json` / `response.json`, and returns a structured envelope
-  - valid capture responses currently include warning `browser_execution_not_yet_connected`
-  - does not launch Playwright yet
+  - `POST /v1/browser/jobs` reads JSON, validates action, evaluates URL/private-network policy, runs isolated Playwright capture, writes `request.json` / `response.json`, and returns a structured envelope
+  - accepted capture responses now include real final URL/title/HTTP status and a screenshot path only if the screenshot file exists
   - creates deterministic per-job artifact directories under the configured artifact root
   - starts on `PORT` or `3080`, binding `127.0.0.1` by default
   - explicit host override available through `BROWSER_WORKER_HOST`
@@ -98,6 +99,11 @@ The current rebuild has a minimal Node service skeleton:
   - exports helpers for artifact-root-relative job paths
   - creates per-job directories and `downloads/` directories
   - writes formatted JSON files
+
+- `browser-capture.js`
+  - launches isolated Playwright capture for `capturePage`
+  - captures final URL, title, HTTP status, and screenshot
+  - closes page/context/browser on both success and failure
 
 - `url-policy.js`
   - exports `evaluateUrlPolicy(...)`
@@ -117,10 +123,15 @@ The current rebuild has a minimal Node service skeleton:
   - listen config defaults and overrides, including artifact root
   - invalid URL produces structured failure envelope
   - private-network target produces structured `private_network_denied` envelope
-  - `capturePage` request produces structured envelope
+  - `capturePage` request produces structured envelope with screenshot path only after a file exists
   - accepted job creates artifact directory and persists `request.json` / `response.json`
+  - screenshot path stays null if the capture layer reports success but no file exists
   - unsupported requested session mode still reports effective `isolated`
   - unknown action produces structured `invalid_action` failure envelope
+
+- `test/browser-capture.test.js`
+  - browser/context/page cleanup on success
+  - browser/context/page cleanup on failure
 
 - `test/url-policy.test.js`
   - malformed and non-HTTP URL rejection
@@ -133,7 +144,7 @@ The current rebuild has a minimal Node service skeleton:
 
 ## Verified command output
 
-Command run from `/DATA/browser-stack` on 2026-06-28 after the artifact-directory/persistence slice:
+Command run from `/DATA/browser-stack` on 2026-06-28 after the isolated Playwright baseline slice:
 
 ```bash
 npm test
@@ -142,8 +153,8 @@ npm test
 Result:
 
 ```text
-# tests 20
-# pass 20
+# tests 23
+# pass 23
 # fail 0
 ```
 
@@ -158,7 +169,7 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 Result:
 
 - loopback target returned structured `private_network_denied`
-- public `https://example.com` target still returned a successful skeleton envelope with `browser_execution_not_yet_connected`
+- public `https://example.com` target returned a real isolated-capture envelope with final URL `https://example.com/`, title `Example Domain`, HTTP status `200`, and screenshot artifact `jobs/<jobId>/screenshot.png`
 
 ## Git/repository state
 
@@ -221,11 +232,9 @@ Role: reference/fallback only. It should not be treated as the rebuild source of
 
 ## What is intentionally not connected yet
 
-- Playwright browser launch from the HTTP service.
-- Real navigation/capture behavior.
-- Screenshot/HTML/text artifact writing.
-- Request/response persistence under job artifact directories.
-- Session registry or lifecycle management.
+- HTML/text artifact writing.
+- Redirect-to-private enforcement after real navigation/redirect chains.
+- Session registry or lifecycle management beyond isolated per-job contexts.
 - `storageState` support.
 - Persistent profile support.
 - Docker/Compose service path for the rebuild.
