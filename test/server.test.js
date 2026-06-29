@@ -115,16 +115,26 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
       assert.deepEqual(body.errors, []);
       assert.equal(body.warnings.includes('browser_execution_not_yet_connected'), false);
       assert.equal(body.artifacts.screenshot, `${body.artifacts.directory}/screenshot.png`);
+      assert.equal(body.artifacts.html, `${body.artifacts.directory}/page.html`);
+      assert.equal(body.artifacts.text, `${body.artifacts.directory}/text.txt`);
       const screenshotStat = await stat(path.join(artifactRoot, body.artifacts.screenshot));
+      const htmlStat = await stat(path.join(artifactRoot, body.artifacts.html));
+      const textStat = await stat(path.join(artifactRoot, body.artifacts.text));
       assert.equal(screenshotStat.isFile(), true);
+      assert.equal(htmlStat.isFile(), true);
+      assert.equal(textStat.isFile(), true);
     }, {
       artifactRoot,
-      capturePage: async ({ screenshotPath }) => {
+      capturePage: async ({ screenshotPath, htmlPath, textPath }) => {
         await writeFile(screenshotPath, 'fake-image');
+        await writeFile(htmlPath, '<html><body>Example Domain</body></html>');
+        await writeFile(textPath, 'Example Domain');
         return {
           finalUrl: 'https://example.com/final',
           title: 'Example Domain',
           httpStatus: 200,
+          htmlCreated: true,
+          textCreated: true,
           screenshotCreated: true
         };
       }
@@ -134,7 +144,7 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
   }
 });
 
-test('POST /v1/browser/jobs persists a structured failed envelope when capturePage throws', async () => {
+test('POST /v1/browser/jobs persists a structured failed envelope when capturePage throws after writing html and text', async () => {
   const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-capture-failure-'));
   const requestPayload = { url: 'https://example.com', action: 'capturePage' };
 
@@ -157,6 +167,8 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
       assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
       assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
       assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
       assert.equal(body.errors[0].code, 'capture_failed');
       assert.equal(body.errors[0].phase, 'capture');
       assert.equal(body.errors[0].retryable, true);
@@ -166,10 +178,15 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
       const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
       assert.deepEqual(persistedRequest, requestPayload);
       assert.deepEqual(persistedResponse, body);
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'screenshot.png')));
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'page.html')));
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'text.txt')));
     }, {
       artifactRoot,
-      capturePage: async () => {
-        throw new Error('playwright blew up with internal stack details');
+      capturePage: async ({ htmlPath, textPath }) => {
+        await writeFile(htmlPath, '<html><body>Example Domain</body></html>');
+        await writeFile(textPath, 'Example Domain');
+        throw new Error('playwright blew up after extraction but before screenshot');
       }
     });
   } finally {
@@ -202,6 +219,8 @@ test('POST /v1/browser/jobs persists the blocked envelope for policy-blocked red
       assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
       assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
       assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
       assert.equal(body.errors[0].code, 'redirected_private_network_denied');
       assert.equal(body.errors[0].phase, 'postNavigationPolicy');
       assert.equal(body.errors[0].retryable, false);
@@ -211,22 +230,29 @@ test('POST /v1/browser/jobs persists the blocked envelope for policy-blocked red
       assert.deepEqual(persistedRequest, requestPayload);
       assert.deepEqual(persistedResponse, body);
       await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'screenshot.png')));
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'page.html')));
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'text.txt')));
     }, {
       artifactRoot,
-      capturePage: async () => ({
-        finalUrl: 'http://127.0.0.1:8080/internal',
-        title: null,
-        httpStatus: null,
-        screenshotCreated: false,
-        policyBlocked: true,
-        policyError: {
-          code: 'redirected_private_network_denied',
-          message: 'Redirected navigation URL was blocked by private-network policy.',
-          phase: 'postNavigationPolicy',
-          retryable: false,
-          detail: { field: 'url', url: 'http://127.0.0.1:8080/internal' }
-        }
-      })
+      capturePage: async ({ screenshotPath, htmlPath, textPath }) => {
+        await writeFile(screenshotPath, 'fake-image');
+        await writeFile(htmlPath, '<html><body>Blocked</body></html>');
+        await writeFile(textPath, 'Blocked');
+        return {
+          finalUrl: 'http://127.0.0.1:8080/internal',
+          title: null,
+          httpStatus: null,
+          screenshotCreated: false,
+          policyBlocked: true,
+          policyError: {
+            code: 'redirected_private_network_denied',
+            message: 'Redirected navigation URL was blocked by private-network policy.',
+            phase: 'postNavigationPolicy',
+            retryable: false,
+            detail: { field: 'url', url: 'http://127.0.0.1:8080/internal' }
+          }
+        };
+      }
     });
   } finally {
     await rm(artifactRoot, { recursive: true, force: true });

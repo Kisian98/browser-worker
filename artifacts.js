@@ -22,6 +22,8 @@ export function createJobArtifacts({ artifactRoot, jobId }) {
       request: path.join(artifactRoot, directory, 'request.json'),
       response: path.join(artifactRoot, directory, 'response.json'),
       screenshot: path.join(artifactRoot, directory, 'screenshot.png'),
+      html: path.join(artifactRoot, directory, 'page.html'),
+      text: path.join(artifactRoot, directory, 'text.txt'),
       downloads: path.join(artifactRoot, directory, 'downloads')
     }
   };

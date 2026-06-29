@@ -10,6 +10,8 @@ test('runIsolatedCapturePage closes page, context, and browser after successful 
   const calls = [];
   const screenshotRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-capture-success-'));
   const screenshotPath = path.join(screenshotRoot, 'shot.png');
+  const htmlPath = path.join(screenshotRoot, 'page.html');
+  const textPath = path.join(screenshotRoot, 'text.txt');
   let routeHandler;
   let continuedUrl = null;
 
@@ -27,6 +29,10 @@ test('runIsolatedCapturePage closes page, context, and browser after successful 
     },
     title: async () => 'Captured Title',
     url: () => 'https://example.com/final',
+    content: async () => '<html></html>',
+    locator: () => ({
+      evaluate: async (fn) => fn({ innerText: 'Visible body text' })
+    }),
     screenshot: async ({ path: targetPath }) => {
       calls.push(['screenshot', targetPath]);
       await import('node:fs/promises').then(({ writeFile }) => writeFile(targetPath, 'png'));
@@ -46,6 +52,8 @@ test('runIsolatedCapturePage closes page, context, and browser after successful 
     const result = await runIsolatedCapturePage({
       targetUrl: 'https://example.com',
       screenshotPath,
+      htmlPath,
+      textPath,
       launchBrowser: async () => browser
     });
 
@@ -55,6 +63,8 @@ test('runIsolatedCapturePage closes page, context, and browser after successful 
     assert.equal(result.screenshotCreated, true);
     assert.equal(continuedUrl, 'https://example.com/final');
     assert.equal(await readFile(screenshotPath, 'utf8'), 'png');
+    assert.equal(await readFile(htmlPath, 'utf8'), '<html></html>');
+    assert.equal(await readFile(textPath, 'utf8'), 'Visible body text');
     assert.deepEqual(calls.slice(-3), [['page.close'], ['context.close'], ['browser.close']]);
   } finally {
     await rm(screenshotRoot, { recursive: true, force: true });
