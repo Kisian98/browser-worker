@@ -177,7 +177,7 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
   }
 });
 
-test('POST /v1/browser/jobs blocks redirected private final URLs after navigation and deletes any screenshot file before persisting the blocked envelope', async () => {
+test('POST /v1/browser/jobs persists the blocked envelope for policy-blocked redirected navigation results without a screenshot', async () => {
   const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-redirected-private-'));
   const requestPayload = { url: 'https://example.com', action: 'capturePage' };
 
@@ -213,15 +213,20 @@ test('POST /v1/browser/jobs blocks redirected private final URLs after navigatio
       await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'screenshot.png')));
     }, {
       artifactRoot,
-      capturePage: async ({ screenshotPath }) => {
-        await writeFile(screenshotPath, 'private-image-should-not-be-reported');
-        return {
-          finalUrl: 'http://127.0.0.1:8080/internal',
-          title: 'Internal Target',
-          httpStatus: 200,
-          screenshotCreated: false
-        };
-      }
+      capturePage: async () => ({
+        finalUrl: 'http://127.0.0.1:8080/internal',
+        title: null,
+        httpStatus: null,
+        screenshotCreated: false,
+        policyBlocked: true,
+        policyError: {
+          code: 'redirected_private_network_denied',
+          message: 'Redirected navigation URL was blocked by private-network policy.',
+          phase: 'postNavigationPolicy',
+          retryable: false,
+          detail: { field: 'url', url: 'http://127.0.0.1:8080/internal' }
+        }
+      })
     });
   } finally {
     await rm(artifactRoot, { recursive: true, force: true });
