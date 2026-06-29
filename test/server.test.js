@@ -115,16 +115,26 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
       assert.deepEqual(body.errors, []);
       assert.equal(body.warnings.includes('browser_execution_not_yet_connected'), false);
       assert.equal(body.artifacts.screenshot, `${body.artifacts.directory}/screenshot.png`);
+      assert.equal(body.artifacts.html, `${body.artifacts.directory}/page.html`);
+      assert.equal(body.artifacts.text, `${body.artifacts.directory}/text.txt`);
       const screenshotStat = await stat(path.join(artifactRoot, body.artifacts.screenshot));
+      const htmlStat = await stat(path.join(artifactRoot, body.artifacts.html));
+      const textStat = await stat(path.join(artifactRoot, body.artifacts.text));
       assert.equal(screenshotStat.isFile(), true);
+      assert.equal(htmlStat.isFile(), true);
+      assert.equal(textStat.isFile(), true);
     }, {
       artifactRoot,
-      capturePage: async ({ screenshotPath }) => {
+      capturePage: async ({ screenshotPath, htmlPath, textPath }) => {
         await writeFile(screenshotPath, 'fake-image');
+        await writeFile(htmlPath, '<html><body>Example Domain</body></html>');
+        await writeFile(textPath, 'Example Domain');
         return {
           finalUrl: 'https://example.com/final',
           title: 'Example Domain',
           httpStatus: 200,
+          htmlCreated: true,
+          textCreated: true,
           screenshotCreated: true
         };
       }
@@ -157,6 +167,8 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
       assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
       assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
       assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
       assert.equal(body.errors[0].code, 'capture_failed');
       assert.equal(body.errors[0].phase, 'capture');
       assert.equal(body.errors[0].retryable, true);
@@ -202,6 +214,8 @@ test('POST /v1/browser/jobs persists the blocked envelope for policy-blocked red
       assert.equal(body.artifacts.request, `${body.artifacts.directory}/request.json`);
       assert.equal(body.artifacts.response, `${body.artifacts.directory}/response.json`);
       assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
       assert.equal(body.errors[0].code, 'redirected_private_network_denied');
       assert.equal(body.errors[0].phase, 'postNavigationPolicy');
       assert.equal(body.errors[0].retryable, false);
