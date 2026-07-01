@@ -1,5 +1,6 @@
 import { rm } from 'node:fs/promises';
 import http from 'node:http';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { createJobArtifacts, prepareJobArtifacts, writeJsonFile } from './artifacts.js';
@@ -42,11 +43,16 @@ async function removeFileIfPresent(path) {
   await rm(path, { force: true });
 }
 
+async function removeDirectoryIfPresent(path) {
+  await rm(path, { recursive: true, force: true });
+}
+
 async function removeArtifactFiles(jobArtifacts) {
   await Promise.all([
     removeFileIfPresent(jobArtifacts.absolute.screenshot),
     removeFileIfPresent(jobArtifacts.absolute.html),
-    removeFileIfPresent(jobArtifacts.absolute.text)
+    removeFileIfPresent(jobArtifacts.absolute.text),
+    removeDirectoryIfPresent(jobArtifacts.absolute.downloads)
   ]);
 }
 
@@ -65,13 +71,57 @@ function normalizePostNavigationPolicyError(policyError) {
   };
 }
 
+function relativizeDownloadPath(downloadPath, jobArtifacts) {
+  if (typeof downloadPath !== 'string') return null;
+  if (!path.isAbsolute(downloadPath)) {
+    const normalizedRelativePath = downloadPath.split(path.sep).join(path.posix.sep);
+    const normalizedWithinArtifacts = path.posix.normalize(normalizedRelativePath);
+    const relativeFromDownloads = path.posix.relative(jobArtifacts.relative.downloads, normalizedWithinArtifacts);
+
+    if (normalizedWithinArtifacts === jobArtifacts.relative.downloads
+      || (!relativeFromDownloads.startsWith('..') && !path.posix.isAbsolute(relativeFromDownloads))) {
+      return normalizedWithinArtifacts;
+    }
+
+    if (!normalizedWithinArtifacts.includes('/')) {
+      return path.posix.join(jobArtifacts.relative.downloads, normalizedWithinArtifacts);
+    }
+
+    return null;
+  }
+  if (downloadPath.startsWith(`${jobArtifacts.relative.downloads}/`) || downloadPath === jobArtifacts.relative.downloads) {
+    return downloadPath;
+  }
+
+  const relativeFromDownloads = path.relative(jobArtifacts.absolute.downloads, downloadPath);
+  if (relativeFromDownloads.startsWith('..') || path.isAbsolute(relativeFromDownloads)) {
+    return null;
+  }
+
+  return path.posix.join(jobArtifacts.relative.downloads, relativeFromDownloads.split(path.sep).join(path.posix.sep));
+}
+
+function normalizeCaptureEvents(events, jobArtifacts) {
+  const downloads = Array.isArray(events?.downloads)
+    ? events.downloads.map((downloadEvent) => ({
+      ...downloadEvent,
+      path: relativizeDownloadPath(downloadEvent.path, jobArtifacts) ?? downloadEvent.relativePath ?? null
+    }))
+    : undefined;
+
+  return downloads ? { ...events, downloads } : events;
+}
+
 async function writeBlockedPolicyEnvelope(res, {
   jobArtifacts,
   jobId,
   startedAt,
   requestSummary,
   requestedUrl,
-  policyError
+  policyError,
+  events = {},
+  warnings = [],
+  downloadArtifacts = []
 }) {
   await removeArtifactFiles(jobArtifacts);
 
@@ -99,8 +149,11 @@ async function writeBlockedPolicyEnvelope(res, {
       response: jobArtifacts.relative.response,
       screenshot: null,
       html: null,
-      text: null
+      text: null,
+      downloads: downloadArtifacts
     },
+    events,
+    warnings,
     errors: [normalizedPolicyError]
   });
   await writeJsonFile(jobArtifacts.absolute.response, envelope);
@@ -180,7 +233,9 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
       targetUrl: urlPolicy.url.toString(),
       screenshotPath: jobArtifacts.absolute.screenshot,
       htmlPath: jobArtifacts.absolute.html,
-      textPath: jobArtifacts.absolute.text
+      textPath: jobArtifacts.absolute.text,
+      downloadsDirectory: jobArtifacts.absolute.downloads,
+      downloadsRelativePath: jobArtifacts.relative.downloads
     });
   } catch (error) {
     await removeArtifactFiles(jobArtifacts);
@@ -203,7 +258,8 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
         response: jobArtifacts.relative.response,
         screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null,
         html: null,
-        text: null
+        text: null,
+        downloads: []
       },
       errors: [{
         code: 'capture_failed',
@@ -225,7 +281,12 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
       startedAt,
       requestSummary,
       requestedUrl,
-      policyError: captureResult.policyError
+      policyError: captureResult.policyError,
+      events: normalizeCaptureEvents(captureResult.events, jobArtifacts),
+      warnings: captureResult.warnings,
+      downloadArtifacts: (captureResult.downloadArtifacts ?? [])
+        .map((downloadPath) => relativizeDownloadPath(downloadPath, jobArtifacts))
+        .filter((downloadPath) => typeof downloadPath === 'string')
     });
   }
 
@@ -240,12 +301,21 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
       startedAt,
       requestSummary,
       requestedUrl,
-      policyError: finalUrlPolicy.error
+      policyError: finalUrlPolicy.error,
+      events: normalizeCaptureEvents(captureResult.events, jobArtifacts),
+      warnings: captureResult.warnings,
+      downloadArtifacts: (captureResult.downloadArtifacts ?? [])
+        .map((downloadPath) => relativizeDownloadPath(downloadPath, jobArtifacts))
+        .filter((downloadPath) => typeof downloadPath === 'string')
     });
   }
 
   const endedAt = nowIso();
-  const warnings = [];
+  const warnings = [...(captureResult.warnings ?? [])];
+  const normalizedEvents = normalizeCaptureEvents(captureResult.events ?? {}, jobArtifacts);
+  const downloadArtifacts = (captureResult.downloadArtifacts ?? [])
+    .map((downloadPath) => relativizeDownloadPath(downloadPath, jobArtifacts))
+    .filter((downloadPath) => typeof downloadPath === 'string');
   const envelope = createResponseEnvelope({
     jobId,
     startedAt,
@@ -270,8 +340,10 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
       response: jobArtifacts.relative.response,
       screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null,
       html: await fileExists(jobArtifacts.absolute.html) ? jobArtifacts.relative.html : null,
-      text: await fileExists(jobArtifacts.absolute.text) ? jobArtifacts.relative.text : null
+      text: await fileExists(jobArtifacts.absolute.text) ? jobArtifacts.relative.text : null,
+      downloads: downloadArtifacts
     },
+    events: normalizedEvents,
     warnings
   });
   await writeJsonFile(jobArtifacts.absolute.response, envelope);

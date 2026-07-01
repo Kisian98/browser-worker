@@ -26,7 +26,8 @@ As of 2026-06-29:
 - Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write screenshot, HTML, and text artifacts when successful.
 - Redirect and final URL policy re-checking is wired into the isolated capture flow.
 - Blocked policy and capture-failure paths defensively remove screenshot, HTML, and text artifacts before returning envelopes with null artifact paths.
-- Broader browser actions, deterministic dialog/popup/download reporting, Docker runtime verification, `storageState`, and persistent profiles are still intentionally not connected.
+- Dialog, popup/new-tab, and download events are now reported through structured capturePage output and covered by controlled fixture tests.
+- Broader browser actions, `storageState`, and persistent profiles are still intentionally not connected.
 
 ## Phase-one acceptance checklist
 
@@ -176,21 +177,21 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-013 — Dialogs are handled deterministically
 
-**Status:** Not started  
+**Status:** Verified  
 **Requirement:** Alert/confirm/prompt dialogs do not hang jobs; default policy dismisses or records them.  
-**Acceptance evidence required:** Controlled fixture page with dialog returns structured warning/event and completes.
+**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a dialog event, `runIsolatedCapturePage` dismisses it, and the job completes with the dialog reported in `events.dialogs`.
 
 ### A-014 — Downloads are captured under job artifacts
 
-**Status:** Not started  
+**Status:** Verified  
 **Requirement:** Downloads triggered during a job are saved under the job's `downloads/` artifact subdirectory and reported in the response.  
-**Acceptance evidence required:** Controlled fixture download produces file path metadata and filesystem file.
+**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a download event, `runIsolatedCapturePage` sanitizes the suggested filename, saves the file under the job downloads directory, and reports the saved path via `events.downloads` and `artifacts.downloads`.
 
 ### A-015 — Popups/new tabs are recorded or controlled
 
-**Status:** Not started  
+**Status:** Verified  
 **Requirement:** Popup/new-tab behavior is not silently lost; it is recorded, blocked, or folded into structured output according to policy.  
-**Acceptance evidence required:** Controlled fixture popup produces structured event/warning and no leaked pages.
+**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a popup event, `runIsolatedCapturePage` records the popup URL/title, and the job completes without leaking browser pages.
 
 ### A-016 — Login/captcha/block signals are represented
 
@@ -200,7 +201,7 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-017 — Isolated session does not persist cookies/state by default
 
-**Status:** Verified for controlled isolated fixture  
+**Status:** Verified for real-browser fixture  
 **Requirement:** Two isolated jobs do not share cookies/localStorage/sessionStorage.  
 **Acceptance evidence:** `test/browser-capture.test.js` runs a controlled real-browser fixture through `runIsolatedCapturePage` twice against the same local origin, sets cookie/localStorage/sessionStorage in job 1, and verifies job 2 does not read those values.
 
