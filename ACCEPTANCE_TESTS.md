@@ -1,6 +1,7 @@
 # Browser Worker Acceptance Tests
 
-Date created: 2026-06-27
+Date created: 2026-06-27  
+Last synced: 2026-06-29 after PR #14
 
 This checklist defines what must be true before phase-one browser-worker implementation is considered real. It is intentionally evidence-based: a checkbox is not complete unless there is a command, output, artifact path, or source-grounded inspection proving it.
 
@@ -14,22 +15,24 @@ This checklist defines what must be true before phase-one browser-worker impleme
 
 ## Current baseline
 
-As of 2026-06-28:
+As of 2026-06-29:
 
 - `/DATA/browser-stack` has a minimal Node HTTP service with isolated Playwright `capturePage` baseline.
 - `GET /health` exists.
 - `POST /v1/browser/jobs` exists.
 - `response-envelope.js` exists.
 - `browser-capture.js` exists.
-- `npm test` passes with 24 Node test-runner tests.
-- Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write a screenshot artifact.
-- HTML/text extraction, redirect re-checking after navigation, and broader browser actions are still intentionally not connected.
+- CI passed on PR #14 before merge.
+- Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write screenshot, HTML, and text artifacts when successful.
+- Redirect and final URL policy re-checking is wired into the isolated capture flow.
+- Blocked policy and capture-failure paths defensively remove screenshot, HTML, and text artifacts before returning envelopes with null artifact paths.
+- Broader browser actions, deterministic dialog/popup/download reporting, Docker runtime verification, `storageState`, and persistent profiles are still intentionally not connected.
 
 ## Phase-one acceptance checklist
 
 ### A-001 — Test suite runs cleanly
 
-**Status:** Skeleton only  
+**Status:** Verified in CI for PR #14 / local smoke evidence still useful  
 **Requirement:** `npm test` passes from `/DATA/browser-stack`.  
 **Verification command:**
 
@@ -37,7 +40,7 @@ As of 2026-06-28:
 npm test
 ```
 
-**Acceptance evidence required:** Full command output showing all tests pass.
+**Acceptance evidence:** CI passed on the PR #14 head before merge. Local command output remains useful for environment-specific verification.
 
 ### A-002 — Service starts locally
 
@@ -101,8 +104,8 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 ### A-006 — Private-network URL is blocked by default
 
-**Status:** Verified for pre-navigation request policy  
-**Requirement:** Requests for localhost, loopback, RFC1918/private ranges, link-local, metadata IPs, Docker/internal networks, and private-resolving hostnames are denied before browser navigation.  
+**Status:** Verified for pre-navigation request policy and implemented for redirect/final URL re-checking  
+**Requirement:** Requests for localhost, loopback, RFC1918/private ranges, link-local, metadata IPs, Docker/internal networks, and private-resolving hostnames are denied before browser navigation. Redirected document navigations and final URLs are also checked before capture output is trusted.  
 **Verification commands:**
 
 ```bash
@@ -115,8 +118,8 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 - unit tests cover malformed/non-HTTP URLs, loopback, `0.0.0.0`, RFC1918/private, metadata, IPv6 loopback/unique-local, IPv4-mapped blocked targets, DNS-resolution failure handling, and hostnames resolving to blocked IPs;
 - server test covers loopback rejection with structured `private_network_denied`;
-- runtime smoke check shows loopback target is denied before browser execution;
-- redirect-to-private enforcement still needs separate verification once real browser navigation exists.
+- browser-capture tests cover redirected private document navigation being aborted before screenshot capture;
+- server tests cover blocked policy responses cleaning page artifacts and persisting structured blocked envelopes.
 
 ### A-007 — Public URL capture loads a real page
 
@@ -129,34 +132,41 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 ```
 
 **Acceptance evidence:**
-- server test covers accepted `capturePage` response shape with real screenshot path reporting only after a file exists;
-- local smoke test against `https://example.com` returned `ok: true`, `finalUrl: https://example.com/`, title `Example Domain`, HTTP status `200`, screenshot path under `jobs/<jobId>/screenshot.png`, and no `browser_execution_not_yet_connected` warning.
+
+- server test covers accepted `capturePage` response shape with screenshot, HTML, and text path reporting only after files exist;
+- earlier local smoke test against `https://example.com` returned `ok: true`, `finalUrl: https://example.com/`, title `Example Domain`, HTTP status `200`, screenshot path under `jobs/<jobId>/screenshot.png`, and no `browser_execution_not_yet_connected` warning.
 
 ### A-008 — Screenshot artifact is written
 
 **Status:** Verified for isolated `capturePage` baseline  
-**Requirement:** A capture job requesting a screenshot writes a screenshot under that job's artifact directory.  
+**Requirement:** A capture job writes a screenshot under that job's artifact directory when screenshot capture succeeds.  
 **Acceptance evidence:**
+
 - server test injects a capture implementation that writes a screenshot file, verifies `artifacts.screenshot` is non-null, and verifies the screenshot file exists on disk;
+- browser-capture test verifies screenshot creation on successful capture;
 - local smoke test produced a screenshot at `jobs/<jobId>/screenshot.png` with non-zero size (`17117` bytes).
 
 ### A-009 — HTML and text artifacts are written
 
-**Status:** Not started  
-**Requirement:** A capture job requesting HTML/text extraction writes `page.html` and/or `text.txt` under that job's artifact directory.  
-**Acceptance evidence required:** Response artifact paths plus filesystem verification and a small content sanity check.
+**Status:** Implemented and covered by tests / runtime smoke evidence still useful  
+**Requirement:** A successful capture job writes `page.html` and `text.txt` under that job's artifact directory.  
+**Acceptance evidence:**
+
+- `browser-capture` test verifies `page.content()` is written to `page.html` and visible body text is written to `text.txt` on successful capture;
+- server test verifies `artifacts.html` and `artifacts.text` are reported only when the files exist;
+- server tests verify failed and blocked jobs clean partial HTML/text artifacts before returning null paths.
 
 ### A-010 — Request and response JSON are persisted
 
-**Status:** Verified for accepted skeleton jobs  
-**Requirement:** Each job writes `request.json` and `response.json` into the job artifact directory.  
-**Acceptance evidence:** Server test creates a temporary artifact root, submits a valid `capturePage` skeleton request, verifies both files exist as valid JSON, checks `request.json` equals the submitted request, and checks `response.json` equals the returned envelope.
+**Status:** Verified for accepted jobs and failure/blocked paths  
+**Requirement:** Each accepted job writes `request.json` and `response.json` into the job artifact directory.  
+**Acceptance evidence:** Server tests create a temporary artifact root, submit valid `capturePage` requests, verify both files exist as valid JSON, check `request.json` equals the submitted request, and check `response.json` equals the returned envelope.
 
 ### A-011 — Response envelope points to correct artifact paths
 
-**Status:** Verified for accepted skeleton jobs  
+**Status:** Verified for accepted jobs  
 **Requirement:** JSON responses include deterministic artifact directory/path metadata matching the files written on disk.  
-**Acceptance evidence:** Server test verifies `artifacts.directory` is `jobs/<jobId>`, `artifacts.request` and `artifacts.response` point under that directory, the job directory exists, and `downloads/` exists under the job directory.
+**Acceptance evidence:** Server tests verify `artifacts.directory` is `jobs/<jobId>`, `artifacts.request` and `artifacts.response` point under that directory, the job directory exists, `downloads/` exists under the job directory, and screenshot/HTML/text paths are only non-null when the files exist.
 
 ### A-012 — Browser resources are cleaned up after each job
 
@@ -190,7 +200,7 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-017 — Isolated session does not persist cookies/state by default
 
-**Status:** Not started  
+**Status:** Next implementation target  
 **Requirement:** Two isolated jobs do not share cookies/localStorage/sessionStorage.  
 **Acceptance evidence required:** Controlled fixture sets state in job 1; job 2 starts clean.
 
