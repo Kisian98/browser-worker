@@ -1,7 +1,7 @@
 # Browser Worker Implementation Dependency Map
 
 Date created: 2026-06-27  
-Last synced: 2026-06-29 after PR #14
+Last synced: 2026-07-01 after PR #18
 
 This map shows the dependency order for implementation. It exists to keep the rebuild brick-by-brick and prevent later slices from being built on missing foundations.
 
@@ -21,6 +21,7 @@ project decisions
   -> capture/extraction
   -> cleanup/lifecycle
   -> isolated-session state verification
+  -> deterministic browser event reporting
   -> Docker runtime path
   -> storageState
   -> persistent profiles
@@ -83,7 +84,7 @@ Depends on:
 
 ### 6. Artifact directory creation before capture
 
-The worker should create a deterministic job artifact directory before screenshot/text/HTML capture. That lets partial failures still leave request/response evidence while blocked or failed page artifacts are cleaned up when they should not be reported.
+The worker should create a deterministic job artifact directory before screenshot/text/HTML capture. That lets partial failures still leave request/response evidence while blocked or failed page/download artifacts are cleaned up when they should not be reported.
 
 Depends on:
 
@@ -96,6 +97,8 @@ Depends on:
 
 Implement and verify clean isolated contexts first. Do not start with auth reuse.
 
+Current state: verified by a controlled real-browser fixture that proves separate default `capturePage` jobs do not share cookies, `localStorage`, or `sessionStorage`.
+
 Depends on:
 
 - Playwright dependency/runtime availability;
@@ -104,18 +107,32 @@ Depends on:
 - timeout handling;
 - proof that separate isolated jobs do not share cookies, `localStorage`, or `sessionStorage`.
 
-### 8. `storageState` before persistent profiles
+### 8. Deterministic browser event reporting before Docker/runtime hardening
+
+Dialog, popup, and download behavior should be deterministic before the service is treated as a reliable runtime target.
+
+Current state: implemented for isolated `capturePage` jobs. Dialogs are recorded and dismissed, popups/new pages are recorded and closed without closing the primary page, and downloads are saved under the per-job downloads directory with sanitization, deduplication, response reporting, and cleanup on failure.
+
+Depends on:
+
+- isolated capture flow;
+- artifact directories and downloads directory;
+- response envelope events/artifacts fields;
+- cleanup rules for failed/blocked captures.
+
+### 9. `storageState` before persistent profiles
 
 Saved state files are the safer middle tier and should be implemented before durable full profiles.
 
 Depends on:
 
 - isolated session correctness;
+- deterministic browser event handling;
 - storage-state directory separation;
 - explicit session-mode validation;
 - no default auth reuse.
 
-### 9. Persistent profiles after state and locking policy
+### 10. Persistent profiles after state and locking policy
 
 Persistent named profiles are sensitive and must not arrive before the service has state segregation and concurrency/locking rules.
 
@@ -127,7 +144,7 @@ Depends on:
 - concurrency/lock policy;
 - private-network and untrusted-site policy.
 
-### 10. Docker runtime path after local service foundation
+### 11. Docker runtime path after local service foundation
 
 Do not harden or overcomplicate Docker before the service has a working local foundation and acceptance tests.
 
@@ -140,7 +157,7 @@ Depends on:
 - artifact mount design;
 - preserving `DOCKER_CONFIG=/DATA/docker-client` where relevant.
 
-### 11. Full container hardening after acceptance tests
+### 12. Full container hardening after acceptance tests
 
 Full hardening should come after the core worker is working.
 
@@ -172,19 +189,19 @@ Completed:
 6. Isolated Playwright baseline: accepted `capturePage` jobs launch a fresh browser context, capture final URL/title/status, write a screenshot, and close browser resources on success/failure.
 7. Redirect/final URL policy re-checking: document navigations and final URLs are checked before trusting broader capture output.
 8. HTML/text artifacts: successful `capturePage` jobs write `page.html` and `text.txt`; failed/blocked paths remove page artifacts before returning null paths.
+9. Isolated-session state verification: separate default `capturePage` jobs do not share cookies, `localStorage`, or `sessionStorage`.
+10. Deterministic browser event reporting: dialogs, popups, and downloads are recorded/handled under isolated `capturePage`, with download sanitization/deduplication and cleanup.
 
 Next:
 
-1. Verify isolated-session state behavior across separate jobs.
-2. Add deterministic dialog/popup/download reporting.
-3. Add Docker runtime path.
-4. Add `storageState` mode.
-5. Add named persistent profile support only after explicit approval.
-6. Apply container hardening after acceptance tests pass.
+1. Add Docker runtime path verification.
+2. Add `storageState` mode.
+3. Add named persistent profile support only after explicit approval.
+4. Apply container hardening after acceptance tests pass.
 
 ## Blockers requiring Kristian input
 
-- Whether Docker runtime work should start immediately after isolated-session verification or after additional reliability reporting.
+- Whether Docker runtime work should stay minimal verification only, or whether it should also include first-pass Compose hardening. Default: minimal verification first.
 
 ## Resolved inputs from Kristian on 2026-06-27
 
