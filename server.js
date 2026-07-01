@@ -43,11 +43,16 @@ async function removeFileIfPresent(path) {
   await rm(path, { force: true });
 }
 
+async function removeDirectoryIfPresent(path) {
+  await rm(path, { recursive: true, force: true });
+}
+
 async function removeArtifactFiles(jobArtifacts) {
   await Promise.all([
     removeFileIfPresent(jobArtifacts.absolute.screenshot),
     removeFileIfPresent(jobArtifacts.absolute.html),
-    removeFileIfPresent(jobArtifacts.absolute.text)
+    removeFileIfPresent(jobArtifacts.absolute.text),
+    removeDirectoryIfPresent(jobArtifacts.absolute.downloads)
   ]);
 }
 
@@ -253,7 +258,8 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
         response: jobArtifacts.relative.response,
         screenshot: screenshotCreated ? jobArtifacts.relative.screenshot : null,
         html: null,
-        text: null
+        text: null,
+        downloads: []
       },
       errors: [{
         code: 'capture_failed',

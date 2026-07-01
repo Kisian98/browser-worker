@@ -28,19 +28,30 @@ function sanitizeDownloadFilename(value) {
   return sanitized === '' || sanitized === '.' || sanitized === '..' ? null : sanitized;
 }
 
-function buildDownloadTargetPath(downloadsDirectory, suggestedFilename) {
+function buildDownloadTargetPath(downloadsDirectory, suggestedFilename, usedDownloadFilenames) {
   const safeFilename = sanitizeDownloadFilename(suggestedFilename);
   if (!downloadsDirectory || !safeFilename) {
     return { safeFilename, targetPath: null };
   }
 
-  const targetPath = path.join(downloadsDirectory, safeFilename);
-  const relativeTarget = path.relative(downloadsDirectory, targetPath);
-  if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
-    return { safeFilename, targetPath: null };
+  const ext = path.extname(safeFilename);
+  const baseName = ext ? safeFilename.slice(0, -ext.length) : safeFilename;
+  let candidateFilename = safeFilename;
+  let counter = 2;
+
+  while (usedDownloadFilenames.has(candidateFilename)) {
+    candidateFilename = `${baseName}-${counter}${ext}`;
+    counter += 1;
   }
 
-  return { safeFilename, targetPath };
+  const targetPath = path.join(downloadsDirectory, candidateFilename);
+  const relativeTarget = path.relative(downloadsDirectory, targetPath);
+  if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    return { safeFilename: candidateFilename, targetPath: null };
+  }
+
+  usedDownloadFilenames.add(candidateFilename);
+  return { safeFilename: candidateFilename, targetPath };
 }
 
 export async function runIsolatedCapturePage({
@@ -63,6 +74,7 @@ export async function runIsolatedCapturePage({
   const downloadDirectory = downloadsDirectory ?? downloadsPath ?? null;
   const popupPages = new WeakSet();
   const eventTasks = [];
+  const usedDownloadFilenames = new Set();
 
   function trackEventTask(task) {
     eventTasks.push(task.catch(() => {}));
@@ -101,9 +113,12 @@ export async function runIsolatedCapturePage({
       acceptDownloads: true,
       downloadsPath: downloadDirectory ?? undefined
     });
-    context.on?.('page', recordPopup);
 
     page = await context.newPage();
+    context.on?.('page', (popupPage) => {
+      if (popupPage === page) return;
+      recordPopup(popupPage);
+    });
     page.on?.('dialog', (dialog) => {
       events.dialogs.push({
         type: dialog.type(),
@@ -117,7 +132,7 @@ export async function runIsolatedCapturePage({
     page.on?.('popup', recordPopup);
     page.on?.('download', (download) => {
       const suggestedFilename = download.suggestedFilename?.() ?? null;
-      const { safeFilename, targetPath } = buildDownloadTargetPath(downloadDirectory, suggestedFilename);
+      const { safeFilename, targetPath } = buildDownloadTargetPath(downloadDirectory, suggestedFilename, usedDownloadFilenames);
       const relativePath = safeFilename && downloadsRelativePath
         ? path.posix.join(downloadsRelativePath, safeFilename)
         : null;

@@ -147,7 +147,7 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
   }
 });
 
-test('POST /v1/browser/jobs persists a structured failed envelope when capturePage throws after writing html and text', async () => {
+test('POST /v1/browser/jobs persists a structured failed envelope when capturePage throws after writing html, text, and downloads', async () => {
   const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-capture-failure-'));
   const requestPayload = { url: 'https://example.com', action: 'capturePage' };
 
@@ -172,6 +172,7 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
       assert.equal(body.artifacts.screenshot, null);
       assert.equal(body.artifacts.html, null);
       assert.equal(body.artifacts.text, null);
+      assert.deepEqual(body.artifacts.downloads, []);
       assert.equal(body.errors[0].code, 'capture_failed');
       assert.equal(body.errors[0].phase, 'capture');
       assert.equal(body.errors[0].retryable, true);
@@ -184,11 +185,13 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
       await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'screenshot.png')));
       await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'page.html')));
       await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'text.txt')));
+      await assert.rejects(stat(path.join(artifactRoot, body.artifacts.directory, 'downloads')));
     }, {
       artifactRoot,
-      capturePage: async ({ htmlPath, textPath }) => {
+      capturePage: async ({ htmlPath, textPath, downloadsDirectory }) => {
         await writeFile(htmlPath, '<html><body>Example Domain</body></html>');
         await writeFile(textPath, 'Example Domain');
+        await writeFile(path.join(downloadsDirectory, 'download.txt'), 'download body');
         throw new Error('playwright blew up after extraction but before screenshot');
       }
     });
