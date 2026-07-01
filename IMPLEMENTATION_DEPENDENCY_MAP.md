@@ -1,6 +1,7 @@
 # Browser Worker Implementation Dependency Map
 
-Date created: 2026-06-27
+Date created: 2026-06-27  
+Last synced: 2026-06-29 after PR #14
 
 This map shows the dependency order for implementation. It exists to keep the rebuild brick-by-brick and prevent later slices from being built on missing foundations.
 
@@ -19,9 +20,10 @@ project decisions
   -> isolated browser execution
   -> capture/extraction
   -> cleanup/lifecycle
+  -> isolated-session state verification
+  -> Docker runtime path
   -> storageState
   -> persistent profiles
-  -> Docker runtime path
   -> hardening
 ```
 
@@ -45,7 +47,7 @@ Blocked by:
 
 The service should return stable JSON for both success and failure before real browser execution is connected.
 
-Current state: partially implemented and tested.
+Current state: implemented and tested for the phase-one `capturePage` surface.
 
 Depends on:
 
@@ -56,32 +58,32 @@ Depends on:
 
 ### 4. Request validation before policy and navigation
 
-Basic JSON and URL validation must happen before browser work.
+Basic JSON, action, and URL validation must happen before browser work.
 
-Current state: basic HTTP(S) URL validation exists.
+Current state: basic HTTP(S) URL validation and `capturePage` action validation exist.
 
-Still needed before browser navigation:
+Still needed before broader actions:
 
-- action validation;
 - capture option validation;
 - timeout bounds;
-- session mode validation;
-- policy validation.
+- explicit session mode validation beyond the current isolated default.
 
 ### 5. URL/private-network policy before arbitrary navigation
 
 The worker must not launch browser navigation to private/internal targets before URL policy exists.
+
+Current state: pre-navigation URL/private-network policy exists, and Playwright document navigation plus final URL policy checks are wired into the isolated capture flow.
 
 Depends on:
 
 - hostname resolution strategy;
 - IP classification;
 - redirect handling policy;
-- structured `private_network_denied` error.
+- structured `private_network_denied` / `redirected_private_network_denied` errors.
 
 ### 6. Artifact directory creation before capture
 
-The worker should create a deterministic job artifact directory before screenshot/text/HTML capture. That lets partial failures still leave evidence.
+The worker should create a deterministic job artifact directory before screenshot/text/HTML capture. That lets partial failures still leave request/response evidence while blocked or failed page artifacts are cleaned up when they should not be reported.
 
 Depends on:
 
@@ -92,14 +94,15 @@ Depends on:
 
 ### 7. Isolated session before `storageState`
 
-Implement clean isolated contexts first. Do not start with auth reuse.
+Implement and verify clean isolated contexts first. Do not start with auth reuse.
 
 Depends on:
 
 - Playwright dependency/runtime availability;
 - browser launch configuration;
 - context/page lifecycle cleanup;
-- timeout handling.
+- timeout handling;
+- proof that separate isolated jobs do not share cookies, `localStorage`, or `sessionStorage`.
 
 ### 8. `storageState` before persistent profiles
 
@@ -167,27 +170,26 @@ Completed:
 4. Response-envelope contract: top-level shape now includes request/events and errors include `phase` / `retryable` metadata.
 5. Artifact persistence foundation: accepted jobs create deterministic artifact directories and write `request.json` / `response.json`.
 6. Isolated Playwright baseline: accepted `capturePage` jobs launch a fresh browser context, capture final URL/title/status, write a screenshot, and close browser resources on success/failure.
+7. Redirect/final URL policy re-checking: document navigations and final URLs are checked before trusting broader capture output.
+8. HTML/text artifacts: successful `capturePage` jobs write `page.html` and `text.txt`; failed/blocked paths remove page artifacts before returning null paths.
 
 Next:
 
-1. Write HTML/text artifacts.
-2. Re-check URL policy after redirects/final navigation state.
-3. Add structured extraction metadata/signals.
-4. Add deterministic dialog/popup/download reporting.
-5. Add Docker runtime path.
-6. Add `storageState` mode.
-7. Add named persistent profile support only after explicit approval.
-8. Apply container hardening after acceptance tests pass.
+1. Verify isolated-session state behavior across separate jobs.
+2. Add deterministic dialog/popup/download reporting.
+3. Add Docker runtime path.
+4. Add `storageState` mode.
+5. Add named persistent profile support only after explicit approval.
+6. Apply container hardening after acceptance tests pass.
 
 ## Blockers requiring Kristian input
 
-- Whether Docker runtime work should start immediately after local service proof or after browser capture proof.
+- Whether Docker runtime work should start immediately after isolated-session verification or after additional reliability reporting.
 
 ## Resolved inputs from Kristian on 2026-06-27
 
 - GitHub repository/remote target: `git@github.com:Kisian98/browser-worker.git`.
 - Local working tree: `/DATA/browser-stack`, initialized on `main` tracking `origin/main`.
-- Working branch: `feature/browser-worker-service-foundation`.
 - Service port/binding: use port `3080` if available; `127.0.0.1:3080` availability verified; bind localhost/internal-only for phase one.
 - Final action naming: `capturePage`.
 - Persistent profile order: isolated -> `storageState` -> persistent profile.
