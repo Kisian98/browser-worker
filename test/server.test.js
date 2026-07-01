@@ -111,12 +111,15 @@ test('POST /v1/browser/jobs returns structured envelope for capturePage requests
       assert.equal(body.page.title, 'Example Domain');
       assert.equal(body.page.httpStatus, 200);
       assert.deepEqual(body.events.dialogs, []);
+      assert.deepEqual(body.events.popups, []);
+      assert.deepEqual(body.events.downloads, []);
       assert.match(body.jobId, /^job-/);
       assert.deepEqual(body.errors, []);
       assert.equal(body.warnings.includes('browser_execution_not_yet_connected'), false);
       assert.equal(body.artifacts.screenshot, `${body.artifacts.directory}/screenshot.png`);
       assert.equal(body.artifacts.html, `${body.artifacts.directory}/page.html`);
       assert.equal(body.artifacts.text, `${body.artifacts.directory}/text.txt`);
+      assert.deepEqual(body.artifacts.downloads, []);
       const screenshotStat = await stat(path.join(artifactRoot, body.artifacts.screenshot));
       const htmlStat = await stat(path.join(artifactRoot, body.artifacts.html));
       const textStat = await stat(path.join(artifactRoot, body.artifacts.text));
@@ -188,6 +191,141 @@ test('POST /v1/browser/jobs persists a structured failed envelope when capturePa
         await writeFile(textPath, 'Example Domain');
         throw new Error('playwright blew up after extraction but before screenshot');
       }
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/browser/jobs reports dialogs, popups, and downloads from capturePage', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-events-'));
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+      const expectedDownloadPath = `${body.artifacts.directory}/downloads/evil_.txt`;
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.events.dialogs, [{ type: 'alert', message: 'Heads up', defaultValue: null }]);
+      assert.deepEqual(body.events.popups, [{ url: 'https://example.com/popup', title: 'Popup' }]);
+      assert.deepEqual(body.events.downloads, [{ suggestedFilename: '../evil?.txt', savedFilename: 'evil_.txt', path: expectedDownloadPath, url: 'https://example.com/report.txt' }]);
+      assert.deepEqual(body.artifacts.downloads, [expectedDownloadPath]);
+      assert.deepEqual(body.warnings, ['download_filename_sanitized', 'popup_closed_automatically']);
+      const persistedResponse = JSON.parse(await readFile(path.join(artifactRoot, body.artifacts.response), 'utf8'));
+      assert.deepEqual(persistedResponse.events.dialogs, body.events.dialogs);
+      assert.deepEqual(persistedResponse.events.popups, body.events.popups);
+      assert.deepEqual(persistedResponse.events.downloads, body.events.downloads);
+      assert.deepEqual(persistedResponse.artifacts.downloads, body.artifacts.downloads);
+    }, {
+      artifactRoot,
+      capturePage: async () => ({
+        finalUrl: 'https://example.com/final',
+        title: 'Example Domain',
+        httpStatus: 200,
+        screenshotCreated: true,
+        htmlCreated: true,
+        textCreated: true,
+        downloadArtifacts: ['evil_.txt'],
+        events: {
+          dialogs: [{ type: 'alert', message: 'Heads up', defaultValue: null }],
+          popups: [{ url: 'https://example.com/popup', title: 'Popup' }],
+          downloads: [{ suggestedFilename: '../evil?.txt', savedFilename: 'evil_.txt', path: 'evil_.txt', url: 'https://example.com/report.txt' }]
+        },
+        warnings: ['download_filename_sanitized', 'popup_closed_automatically']
+      })
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/browser/jobs preserves reported events when capturePage returns a policy-blocked result', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-blocked-events-'));
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, false);
+      assert.equal(body.status, 'blocked');
+      assert.deepEqual(body.events.dialogs, [{ type: 'confirm', message: 'Still continue?', defaultValue: '' }]);
+      assert.deepEqual(body.events.popups, [{ url: 'https://example.com/popup', title: 'Popup' }]);
+      assert.deepEqual(body.events.downloads, []);
+      assert.deepEqual(body.artifacts.downloads, []);
+      assert.deepEqual(body.warnings, ['popup_closed_automatically']);
+    }, {
+      artifactRoot,
+      capturePage: async () => ({
+        finalUrl: 'http://127.0.0.1:8080/internal',
+        title: null,
+        httpStatus: null,
+        screenshotCreated: false,
+        policyBlocked: true,
+        policyError: {
+          code: 'redirected_private_network_denied',
+          message: 'Redirected navigation URL was blocked by private-network policy.',
+          phase: 'postNavigationPolicy',
+          retryable: false,
+          detail: { field: 'url', url: 'http://127.0.0.1:8080/internal' }
+        },
+        events: {
+          dialogs: [{ type: 'confirm', message: 'Still continue?', defaultValue: '' }],
+          popups: [{ url: 'https://example.com/popup', title: 'Popup' }],
+          downloads: []
+        },
+        warnings: ['popup_closed_automatically']
+      })
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/browser/jobs rejects traversal-style relative download paths from capturePage results', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-download-path-scope-'));
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.artifacts.downloads, []);
+      assert.deepEqual(body.events.downloads, [{
+        suggestedFilename: '../evil?.txt',
+        savedFilename: 'evil_.txt',
+        path: null,
+        url: 'https://example.com/report.txt'
+      }]);
+    }, {
+      artifactRoot,
+      capturePage: async () => ({
+        finalUrl: 'https://example.com/final',
+        title: 'Example Domain',
+        httpStatus: 200,
+        screenshotCreated: true,
+        htmlCreated: true,
+        textCreated: true,
+        downloadArtifacts: ['../outside/evil_.txt'],
+        events: {
+          downloads: [{ suggestedFilename: '../evil?.txt', savedFilename: 'evil_.txt', path: '../outside/evil_.txt', url: 'https://example.com/report.txt' }]
+        }
+      })
     });
   } finally {
     await rm(artifactRoot, { recursive: true, force: true });

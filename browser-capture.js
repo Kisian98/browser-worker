@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { access, writeFile } from 'node:fs/promises';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 
 import { evaluateUrlPolicy } from './url-policy.js';
 
@@ -17,98 +17,30 @@ export async function fileExists(path) {
   }
 }
 
-function safeString(value) {
-  return typeof value === 'string' ? value : '';
+function sanitizeDownloadFilename(value) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const basename = path.basename(trimmed);
+  const sanitized = basename.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+  return sanitized === '' || sanitized === '.' || sanitized === '..' ? null : sanitized;
 }
 
-function safeDownloadFilename(value, fallback) {
-  const baseName = path.basename(safeString(value)).replaceAll(/[\\/:*?"<>|]/g, '_');
-  return baseName || fallback;
-}
+function buildDownloadTargetPath(downloadsDirectory, suggestedFilename) {
+  const safeFilename = sanitizeDownloadFilename(suggestedFilename);
+  if (!downloadsDirectory || !safeFilename) {
+    return { safeFilename, targetPath: null };
+  }
 
-function makeEventState({ downloadsPath, downloadsRelativePath }) {
-  const events = {
-    dialogs: [],
-    popups: [],
-    downloads: []
-  };
-  const downloadArtifacts = [];
-  const pending = [];
+  const targetPath = path.join(downloadsDirectory, safeFilename);
+  const relativeTarget = path.relative(downloadsDirectory, targetPath);
+  if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    return { safeFilename, targetPath: null };
+  }
 
-  return {
-    events,
-    downloadArtifacts,
-    pending,
-    addPending(promise) {
-      pending.push(promise.catch((error) => {
-        events.pageErrors ??= [];
-        events.pageErrors.push({
-          message: error.message ?? String(error),
-          phase: 'eventReporting'
-        });
-      }));
-    },
-    async flush() {
-      await Promise.allSettled(pending);
-    },
-    recordDownloadArtifact(filename) {
-      if (!downloadsRelativePath) return null;
-      const relativePath = path.posix.join(downloadsRelativePath, filename);
-      downloadArtifacts.push(relativePath);
-      return relativePath;
-    },
-    downloadsPath
-  };
-}
-
-function attachEventReporting(page, eventState) {
-  page.on?.('dialog', (dialog) => {
-    const event = {
-      type: safeString(dialog.type?.()),
-      message: safeString(dialog.message?.()),
-      defaultValue: safeString(dialog.defaultValue?.()),
-      handled: 'dismissed'
-    };
-    eventState.events.dialogs.push(event);
-    eventState.addPending(dialog.dismiss().catch(async () => {
-      event.handled = 'accept_failed';
-      await dialog.accept?.();
-    }));
-  });
-
-  page.on?.('popup', (popup) => {
-    const event = {
-      url: null,
-      title: null,
-      closed: false
-    };
-    eventState.events.popups.push(event);
-    eventState.addPending((async () => {
-      await popup.waitForLoadState?.('domcontentloaded', { timeout: 1000 }).catch(() => {});
-      event.url = safeString(popup.url?.()) || null;
-      event.title = safeString(await popup.title?.().catch(() => null)) || null;
-      await popup.close?.().catch(() => {});
-      event.closed = true;
-    })());
-  });
-
-  page.on?.('download', (download) => {
-    const event = {
-      suggestedFilename: null,
-      path: null,
-      saved: false
-    };
-    eventState.events.downloads.push(event);
-    eventState.addPending((async () => {
-      const index = eventState.events.downloads.length;
-      const filename = safeDownloadFilename(await download.suggestedFilename?.(), `download-${index}`);
-      const targetPath = path.join(eventState.downloadsPath, filename);
-      await download.saveAs(targetPath);
-      event.suggestedFilename = filename;
-      event.path = eventState.recordDownloadArtifact(filename);
-      event.saved = true;
-    })());
-  });
+  return { safeFilename, targetPath };
 }
 
 export async function runIsolatedCapturePage({
@@ -116,6 +48,7 @@ export async function runIsolatedCapturePage({
   screenshotPath,
   htmlPath,
   textPath,
+  downloadsDirectory,
   downloadsPath,
   downloadsRelativePath,
   launchBrowser = defaultLaunchBrowser,
@@ -125,12 +58,93 @@ export async function runIsolatedCapturePage({
   let context;
   let page;
   let blockedNavigation = null;
-  const eventState = makeEventState({ downloadsPath, downloadsRelativePath });
+  const events = { dialogs: [], popups: [], downloads: [] };
+  const warnings = [];
+  const downloadDirectory = downloadsDirectory ?? downloadsPath ?? null;
+  const popupPages = new WeakSet();
+  const eventTasks = [];
+
+  function trackEventTask(task) {
+    eventTasks.push(task.catch(() => {}));
+    return task;
+  }
+
+  async function settleEventTasks() {
+    if (eventTasks.length === 0) return;
+    await Promise.allSettled(eventTasks.splice(0));
+  }
+
+  function recordPopup(popupPage) {
+    if (!popupPage || popupPages.has(popupPage)) return;
+
+    popupPages.add(popupPage);
+    const event = {
+      url: popupPage.url?.() ?? null,
+      title: null
+    };
+    events.popups.push(event);
+
+    trackEventTask((async () => {
+      event.title = await popupPage.title?.().catch(() => null);
+      await popupPage.close?.().catch(() => {
+        warnings.push('popup_close_failed');
+      });
+    })());
+  }
 
   try {
-    context = await browser.newContext({ acceptDownloads: true });
+    if (downloadDirectory) {
+      await mkdir(downloadDirectory, { recursive: true });
+    }
+
+    context = await browser.newContext({
+      acceptDownloads: true,
+      downloadsPath: downloadDirectory ?? undefined
+    });
+    context.on?.('page', recordPopup);
+
     page = await context.newPage();
-    attachEventReporting(page, eventState);
+    page.on?.('dialog', (dialog) => {
+      events.dialogs.push({
+        type: dialog.type(),
+        message: dialog.message(),
+        defaultValue: dialog.defaultValue?.() ?? null
+      });
+      trackEventTask(dialog.dismiss().catch(() => {
+        warnings.push('dialog_dismiss_failed');
+      }));
+    });
+    page.on?.('popup', recordPopup);
+    page.on?.('download', (download) => {
+      const suggestedFilename = download.suggestedFilename?.() ?? null;
+      const { safeFilename, targetPath } = buildDownloadTargetPath(downloadDirectory, suggestedFilename);
+      const relativePath = safeFilename && downloadsRelativePath
+        ? path.posix.join(downloadsRelativePath, safeFilename)
+        : null;
+
+      if (!downloadDirectory) {
+        warnings.push('download_directory_unavailable');
+      } else if (safeFilename && safeFilename !== suggestedFilename) {
+        warnings.push('download_filename_sanitized');
+      }
+
+      const event = {
+        suggestedFilename,
+        savedFilename: safeFilename,
+        path: targetPath,
+        relativePath,
+        url: download.url?.() ?? null
+      };
+      events.downloads.push(event);
+
+      if (targetPath) {
+        trackEventTask(download.saveAs(targetPath).catch(() => {
+          warnings.push('download_save_failed');
+          event.path = null;
+          event.relativePath = null;
+        }));
+      }
+    });
 
     await page.route('**/*', async (route) => {
       const request = route.request();
@@ -178,16 +192,18 @@ export async function runIsolatedCapturePage({
       }
     }
 
-    await page.waitForTimeout?.(250).catch(() => {});
-    await eventState.flush();
+    await settleEventTasks();
 
     if (blockedNavigation) {
       return {
         ...blockedNavigation,
         title: await page.title().catch(() => null),
         httpStatus: response?.status?.() ?? null,
-        events: eventState.events,
-        downloadArtifacts: eventState.downloadArtifacts
+        downloadArtifacts: events.downloads
+          .map((downloadEvent) => downloadEvent.relativePath ?? downloadEvent.path)
+          .filter((downloadPath) => typeof downloadPath === 'string'),
+        events,
+        warnings
       };
     }
 
@@ -197,24 +213,18 @@ export async function runIsolatedCapturePage({
       : { ok: true };
 
     if (!finalUrlPolicy.ok) {
-      const blockedByPrivateNetwork = finalUrlPolicy.error.code === 'private_network_denied';
       return {
         finalUrl,
         title: await page.title(),
         httpStatus: response?.status?.() ?? null,
         screenshotCreated: false,
         policyBlocked: true,
-        policyError: {
-          code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : finalUrlPolicy.error.code,
-          message: blockedByPrivateNetwork
-            ? 'Final navigated URL was blocked by private-network policy.'
-            : finalUrlPolicy.error.message,
-          phase: 'postNavigationPolicy',
-          retryable: false,
-          detail: finalUrlPolicy.error.detail
-        },
-        events: eventState.events,
-        downloadArtifacts: eventState.downloadArtifacts
+        policyError: finalUrlPolicy.error,
+        downloadArtifacts: events.downloads
+          .map((downloadEvent) => downloadEvent.relativePath ?? downloadEvent.path)
+          .filter((downloadPath) => typeof downloadPath === 'string'),
+        events,
+        warnings
       };
     }
 
@@ -236,8 +246,11 @@ export async function runIsolatedCapturePage({
       htmlCreated: await fileExists(htmlPath),
       textCreated: await fileExists(textPath),
       screenshotCreated: await fileExists(screenshotPath),
-      events: eventState.events,
-      downloadArtifacts: eventState.downloadArtifacts
+      downloadArtifacts: events.downloads
+        .map((downloadEvent) => downloadEvent.relativePath ?? downloadEvent.path)
+        .filter((downloadPath) => typeof downloadPath === 'string'),
+      events,
+      warnings
     };
   } finally {
     await page?.close?.();
