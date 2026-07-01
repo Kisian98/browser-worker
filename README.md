@@ -20,7 +20,7 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `package.json` with `npm test` and `npm start` scripts plus Playwright dependency.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
 - `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
-- `browser-capture.js` for isolated Playwright `capturePage` execution and cleanup.
+- `browser-capture.js` for isolated Playwright `capturePage` execution, redirect/final URL policy checks, HTML/text capture, screenshot capture, and cleanup.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy.
 - `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
@@ -29,15 +29,15 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `capturePage` as the accepted phase-one action.
 - structured `invalid_action` errors for unknown actions.
 - structured `private_network_denied` errors for blocked private/internal targets.
-- Node test-runner coverage for the envelope, service responses, listen config, action validation, and URL policy.
+- isolated `capturePage` jobs that launch Playwright, capture final URL/title/status, write screenshot/HTML/text artifacts when successful, and persist `request.json` / `response.json`.
+- blocked policy and capture-failure paths that defensively remove page artifacts before returning envelopes with null artifact paths.
+- Node test-runner coverage for the envelope, service responses, listen config, action validation, URL policy, redirect/final URL policy re-checking, artifact persistence, and cleanup behavior.
 
 Known intended longer-term flow:
 
 ```text
 host wrapper -> sudo DOCKER_CONFIG=/DATA/docker-client docker compose run --rm browser-worker -> node worker.js/server.js -> Playwright opens Chromium -> structured JSON job response
 ```
-
-The current service now launches isolated Playwright for accepted `capturePage` jobs, captures a real page title/final URL/HTTP status, and writes a screenshot artifact when capture succeeds. HTML/text extraction, broader browser actions, and session reuse are still intentionally not connected.
 
 ## Quick local commands
 
@@ -76,10 +76,11 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ## Next implementation step
 
-Write real HTML/text artifacts and re-check URL policy after redirects/final navigation state before trusting broader capture output.
+Verify isolated-session state behavior: two default `capturePage` jobs must not share cookies, `localStorage`, or `sessionStorage`.
 
 After that:
 
-1. add richer extraction metadata/signals;
-2. handle dialogs/popups/download reporting deterministically;
-3. only then consider broader bounded browser actions.
+1. add deterministic dialog/popup/download reporting;
+2. add Docker runtime path verification;
+3. design and implement explicit `storageState` mode;
+4. only then consider named persistent profile support and broader bounded browser actions.

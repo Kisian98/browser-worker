@@ -1,6 +1,7 @@
 # Browser Worker Risks and Bugs
 
-Date created: 2026-06-27
+Date created: 2026-06-27  
+Last synced: 2026-06-29 after PR #14
 
 This is the canonical checklist for known risks, bugs, hazards, and future issue candidates discovered during planning or implementation. Keep this practical: each entry should preserve what we know, why it matters, current status, and the expected resolution path.
 
@@ -51,7 +52,6 @@ PORT
 
 - RED test initially failed because `getListenConfig` did not exist.
 - Added tests for default localhost/port and explicit override.
-- `npm test` passes: 6 tests, 0 failures.
 - Runtime smoke check: `curl http://127.0.0.1:3080/health` returns healthy JSON.
 
 ---
@@ -89,20 +89,21 @@ capturePage
 - Tests use `capturePage`.
 - API validation accepts `capturePage`.
 - Unknown action returns structured `invalid_action` error.
-- `npm test` passes: 7 tests, 0 failures.
 
 ---
 
-### RB-003 — Private-network policy exists, but redirect enforcement still needs to be wired into real navigation
+### RB-003 — Private-network policy must cover redirects/final URLs
 
-**Status:** Watching  
+**Status:** Resolved for isolated `capturePage` / Watching for future broader actions  
 **Severity:** High  
 **Area:** security / URL policy  
-**Observed in:** `url-policy.js`, `server.js`, `ACCEPTANCE_TESTS.md`
+**Observed in:** `url-policy.js`, `browser-capture.js`, `server.js`, `ACCEPTANCE_TESTS.md`
 
 **What we know:**
 
-The worker now evaluates URL/private-network policy before the skeleton capture path accepts a request. Current policy:
+The worker evaluates URL/private-network policy before accepted jobs launch browser navigation. It also checks document navigation requests and final URLs during isolated `capturePage` execution, so a public-looking start URL cannot redirect the capture path into a blocked private/internal target.
+
+Current policy:
 
 - validates absolute HTTP(S) URLs;
 - blocks localhost and loopback;
@@ -110,47 +111,48 @@ The worker now evaluates URL/private-network policy before the skeleton capture 
 - blocks link-local and metadata IPs;
 - blocks selected IPv6 loopback/unique-local/link-local/multicast ranges;
 - blocks hostnames that resolve to blocked IPs;
-- returns structured `private_network_denied` errors.
+- returns structured `private_network_denied` errors for pre-navigation policy failures;
+- returns structured `redirected_private_network_denied` errors for redirected/final navigation policy failures.
 
-**What remains:**
+**Remaining watch point:**
 
-Once real Playwright navigation exists, redirect targets and navigation-time URL changes must also be checked so a public-looking start URL cannot bounce into a blocked/private destination.
+If broader browser actions are added later, those actions must reuse the same policy gates for every new document navigation surface. Do not assume the `capturePage` policy wiring automatically covers future action types.
 
 **Acceptance evidence:**
 
 - Unit tests cover representative private/special IP and hostname cases, including `0.0.0.0`, IPv4-mapped IPv6 blocked targets, and DNS-resolution failure handling.
-- HTTP endpoint test covers loopback rejection.
-- Runtime smoke check shows loopback request returns structured `private_network_denied` before browser execution.
-- Future redirect-to-private test still needed before real browser navigation is connected.
+- HTTP endpoint test covers loopback rejection before browser execution.
+- Browser-capture tests cover redirected private document navigation being aborted before screenshot capture.
+- Server tests cover blocked policy envelopes and defensive page artifact cleanup.
 
 ---
 
-### RB-004 — Browser execution baseline is connected, but extraction and redirect re-checking are still incomplete
+### RB-004 — Browser execution baseline could be mistaken for a fuller worker
 
-**Status:** Resolved for isolated capture baseline / Watching  
+**Status:** Watching  
 **Severity:** Medium  
 **Area:** implementation state / false-confidence risk  
-**Observed in:** `server.js`, `IMPLEMENTATION_NOTES.md`, `CURRENT_STATE_SNAPSHOT.md`
+**Observed in:** `server.js`, `browser-capture.js`, `IMPLEMENTATION_NOTES.md`, `CURRENT_STATE_SNAPSHOT.md`
 
 **What we know:**
 
-Accepted `capturePage` jobs now launch isolated Playwright, capture final URL/title/HTTP status, write a screenshot artifact when present, and persist `response.json` for accepted capture failures with a structured `capture_failed` envelope.
+Accepted `capturePage` jobs now launch isolated Playwright, capture final URL/title/HTTP status, write screenshot, HTML, and text artifacts when successful, and persist `request.json` / `response.json`. Accepted capture failures return structured `capture_failed` data and remove page artifacts that should not be reported.
 
 **Why it matters:**
 
-The service is now a real narrow capture baseline, but it still should not be mistaken for a fuller worker until extraction artifacts and redirect-to-private enforcement are wired in.
+The service is now a real narrow capture baseline, but it still should not be mistaken for a general browser worker. It does not yet support broader actions, deterministic dialog/popup/download reporting, `storageState`, persistent profiles, or Docker runtime verification.
 
-**Expected fix:**
+**Expected next fix:**
 
-Use the isolated capture baseline as the new floor, then add HTML/text artifacts and redirect/final-URL policy re-checking before expanding capability.
+Verify isolated-session state behavior before adding any saved state or profile reuse.
 
 **Acceptance evidence:**
 
 - Public URL capture loads through Playwright.
 - Accepted capture response includes real final URL/title/HTTP status.
-- Screenshot artifact is reported only when the file exists.
-- Accepted capture failures return structured `capture_failed` data and persist `response.json`.
-- HTML/text artifacts are still pending.
+- Screenshot, HTML, and text artifacts are reported only when files exist.
+- Accepted capture failures return structured `capture_failed` data, clean page artifacts, and persist `response.json`.
+- Blocked redirected/final URL paths clean page artifacts and return structured blocked envelopes.
 
 ---
 
@@ -257,19 +259,7 @@ Decide whether future `agent-runs/` logs should remain tracked, be pruned before
 - Repo hygiene decision recorded.
 - `.gitignore` updated if needed.
 
-## Resolved issues
-
-### RB-001 — Direct-run localhost binding
-
-Resolved on 2026-06-27 by defaulting direct-run startup to `127.0.0.1:3080` with explicit `BROWSER_WORKER_HOST` override.
-
-### RB-002 — Action naming and validation
-
-Resolved on 2026-06-27 by migrating the accepted action to `capturePage` and returning structured `invalid_action` errors for unknown actions.
-
-### RB-006 — Handoff stale blocker wording
-
-Resolved on 2026-06-27 by rewriting `AGENT_HANDOFF.md` to match current repo/runtime state.
+---
 
 ### RB-009 — Repository visibility appeared public
 
