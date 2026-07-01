@@ -200,9 +200,9 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-017 — Isolated session does not persist cookies/state by default
 
-**Status:** Next implementation target  
+**Status:** Verified for controlled isolated fixture  
 **Requirement:** Two isolated jobs do not share cookies/localStorage/sessionStorage.  
-**Acceptance evidence required:** Controlled fixture sets state in job 1; job 2 starts clean.
+**Acceptance evidence:** `test/browser-capture.test.js` runs a controlled real-browser fixture through `runIsolatedCapturePage` twice against the same local origin, sets cookie/localStorage/sessionStorage in job 1, and verifies job 2 does not read those values.
 
 ### A-018 — `storageState` mode is explicit and segregated
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 
 import { runIsolatedCapturePage } from '../browser-capture.js';
 
@@ -152,6 +153,81 @@ test('runIsolatedCapturePage still closes browser resources when capture fails',
     }),
     /navigation failed/
   );
-
   assert.deepEqual(calls, [['page.close'], ['context.close'], ['browser.close']]);
+});
+
+test('runIsolatedCapturePage proves state isolation with a real browser fixture', async () => {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const setCookie = url.searchParams.get('setCookie');
+    const setLocalStorage = url.searchParams.get('setLocalStorage');
+    const setSessionStorage = url.searchParams.get('setSessionStorage');
+
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    if (setCookie) {
+      res.setHeader('set-cookie', `${setCookie}=job1-cookie; Path=/`);
+    }
+
+    res.end(`<!doctype html>
+<html>
+<body>
+  <div id="cookie"></div>
+  <div id="local"></div>
+  <div id="session"></div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const localKey = params.get('setLocalStorage');
+    const sessionKey = params.get('setSessionStorage');
+    if (localKey) localStorage.setItem(localKey, 'job1-local');
+    if (sessionKey) sessionStorage.setItem(sessionKey, 'job1-session');
+    document.querySelector('#cookie').textContent = document.cookie || '';
+    document.querySelector('#local').textContent = localKey ? localStorage.getItem(localKey) || '' : (localStorage.getItem('shared-local') || '');
+    document.querySelector('#session').textContent = sessionKey ? sessionStorage.getItem(sessionKey) || '' : (sessionStorage.getItem('shared-session') || '');
+  </script>
+</body>
+</html>`);
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const screenshotRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-capture-isolation-'));
+  const job1 = {
+    screenshotPath: path.join(screenshotRoot, 'job1.png'),
+    htmlPath: path.join(screenshotRoot, 'job1.html'),
+    textPath: path.join(screenshotRoot, 'job1.txt')
+  };
+  const job2 = {
+    screenshotPath: path.join(screenshotRoot, 'job2.png'),
+    htmlPath: path.join(screenshotRoot, 'job2.html'),
+    textPath: path.join(screenshotRoot, 'job2.txt')
+  };
+
+  try {
+    await runIsolatedCapturePage({
+      targetUrl: `${baseUrl}/?setCookie=shared-cookie&setLocalStorage=shared-local&setSessionStorage=shared-session`,
+      ...job1,
+      launchBrowser: async () => (await import('playwright')).chromium.launch({ headless: true }),
+      evaluatePolicy: async (input) => ({ ok: true, url: new URL(input.url) })
+    });
+
+    await runIsolatedCapturePage({
+      targetUrl: `${baseUrl}/`,
+      ...job2,
+      launchBrowser: async () => (await import('playwright')).chromium.launch({ headless: true }),
+      evaluatePolicy: async (input) => ({ ok: true, url: new URL(input.url) })
+    });
+
+    const job1Text = await readFile(job1.textPath, 'utf8');
+    const job2Text = await readFile(job2.textPath, 'utf8');
+    assert.match(job1Text, /job1-cookie/);
+    assert.match(job1Text, /job1-local/);
+    assert.match(job1Text, /job1-session/);
+    assert.doesNotMatch(job2Text, /job1-cookie/);
+    assert.doesNotMatch(job2Text, /job1-local/);
+    assert.doesNotMatch(job2Text, /job1-session/);
+  } finally {
+    server.close();
+    await rm(screenshotRoot, { recursive: true, force: true });
+  }
 });
