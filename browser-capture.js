@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { access, writeFile } from 'node:fs/promises';
 
 import { evaluateUrlPolicy } from './url-policy.js';
@@ -16,11 +17,107 @@ export async function fileExists(path) {
   }
 }
 
+function safeString(value) {
+  return typeof value === 'string' ? value : '';
+}
+
+function safeDownloadFilename(value, fallback) {
+  const baseName = path.basename(safeString(value)).replaceAll(/[\\/:*?"<>|]/g, '_');
+  return baseName || fallback;
+}
+
+function makeEventState({ downloadsPath, downloadsRelativePath }) {
+  const events = {
+    dialogs: [],
+    popups: [],
+    downloads: []
+  };
+  const downloadArtifacts = [];
+  const pending = [];
+
+  return {
+    events,
+    downloadArtifacts,
+    pending,
+    addPending(promise) {
+      pending.push(promise.catch((error) => {
+        events.pageErrors ??= [];
+        events.pageErrors.push({
+          message: error.message ?? String(error),
+          phase: 'eventReporting'
+        });
+      }));
+    },
+    async flush() {
+      await Promise.allSettled(pending);
+    },
+    recordDownloadArtifact(filename) {
+      if (!downloadsRelativePath) return null;
+      const relativePath = path.posix.join(downloadsRelativePath, filename);
+      downloadArtifacts.push(relativePath);
+      return relativePath;
+    },
+    downloadsPath
+  };
+}
+
+function attachEventReporting(page, eventState) {
+  page.on?.('dialog', (dialog) => {
+    const event = {
+      type: safeString(dialog.type?.()),
+      message: safeString(dialog.message?.()),
+      defaultValue: safeString(dialog.defaultValue?.()),
+      handled: 'dismissed'
+    };
+    eventState.events.dialogs.push(event);
+    eventState.addPending(dialog.dismiss().catch(async () => {
+      event.handled = 'accept_failed';
+      await dialog.accept?.();
+    }));
+  });
+
+  page.on?.('popup', (popup) => {
+    const event = {
+      url: null,
+      title: null,
+      closed: false
+    };
+    eventState.events.popups.push(event);
+    eventState.addPending((async () => {
+      await popup.waitForLoadState?.('domcontentloaded', { timeout: 1000 }).catch(() => {});
+      event.url = safeString(popup.url?.()) || null;
+      event.title = safeString(await popup.title?.().catch(() => null)) || null;
+      await popup.close?.().catch(() => {});
+      event.closed = true;
+    })());
+  });
+
+  page.on?.('download', (download) => {
+    const event = {
+      suggestedFilename: null,
+      path: null,
+      saved: false
+    };
+    eventState.events.downloads.push(event);
+    eventState.addPending((async () => {
+      const index = eventState.events.downloads.length;
+      const filename = safeDownloadFilename(await download.suggestedFilename?.(), `download-${index}`);
+      const targetPath = path.join(eventState.downloadsPath, filename);
+      await download.saveAs(targetPath);
+      event.suggestedFilename = filename;
+      event.path = eventState.recordDownloadArtifact(filename);
+      event.saved = true;
+    })());
+  });
+}
+
 export async function runIsolatedCapturePage({
   targetUrl,
   screenshotPath,
   htmlPath,
   textPath,
+  downloadsPath,
+  downloadsRelativePath,
   launchBrowser = defaultLaunchBrowser,
   evaluatePolicy = evaluateUrlPolicy
 }) {
@@ -28,10 +125,13 @@ export async function runIsolatedCapturePage({
   let context;
   let page;
   let blockedNavigation = null;
+  const eventState = makeEventState({ downloadsPath, downloadsRelativePath });
 
   try {
-    context = await browser.newContext();
+    context = await browser.newContext({ acceptDownloads: true });
     page = await context.newPage();
+    attachEventReporting(page, eventState);
+
     await page.route('**/*', async (route) => {
       const request = route.request();
       const isDocumentNavigation = request.resourceType() === 'document' && request.isNavigationRequest();
@@ -78,11 +178,16 @@ export async function runIsolatedCapturePage({
       }
     }
 
+    await page.waitForTimeout?.(250).catch(() => {});
+    await eventState.flush();
+
     if (blockedNavigation) {
       return {
         ...blockedNavigation,
         title: await page.title().catch(() => null),
-        httpStatus: response?.status?.() ?? null
+        httpStatus: response?.status?.() ?? null,
+        events: eventState.events,
+        downloadArtifacts: eventState.downloadArtifacts
       };
     }
 
@@ -107,7 +212,9 @@ export async function runIsolatedCapturePage({
           phase: 'postNavigationPolicy',
           retryable: false,
           detail: finalUrlPolicy.error.detail
-        }
+        },
+        events: eventState.events,
+        downloadArtifacts: eventState.downloadArtifacts
       };
     }
 
@@ -128,7 +235,9 @@ export async function runIsolatedCapturePage({
       httpStatus: response?.status?.() ?? null,
       htmlCreated: await fileExists(htmlPath),
       textCreated: await fileExists(textPath),
-      screenshotCreated: await fileExists(screenshotPath)
+      screenshotCreated: await fileExists(screenshotPath),
+      events: eventState.events,
+      downloadArtifacts: eventState.downloadArtifacts
     };
   } finally {
     await page?.close?.();
