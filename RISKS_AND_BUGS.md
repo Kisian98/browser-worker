@@ -1,7 +1,7 @@
 # Browser Worker Risks and Bugs
 
 Date created: 2026-06-27  
-Last synced: 2026-06-29 after PR #14
+Last synced: 2026-07-01 after PR #18
 
 This is the canonical checklist for known risks, bugs, hazards, and future issue candidates discovered during planning or implementation. Keep this practical: each entry should preserve what we know, why it matters, current status, and the expected resolution path.
 
@@ -136,23 +136,25 @@ If broader browser actions are added later, those actions must reuse the same po
 
 **What we know:**
 
-Accepted `capturePage` jobs now launch isolated Playwright, capture final URL/title/HTTP status, write screenshot, HTML, and text artifacts when successful, and persist `request.json` / `response.json`. Accepted capture failures return structured `capture_failed` data and remove page artifacts that should not be reported.
+Accepted `capturePage` jobs now launch isolated Playwright, capture final URL/title/HTTP status, write screenshot, HTML, and text artifacts when successful, persist `request.json` / `response.json`, verify isolated-session state does not leak across default jobs, and report deterministic dialog/popup/download events.
 
 **Why it matters:**
 
-The service is now a real narrow capture baseline, but it still should not be mistaken for a general browser worker. It does not yet support broader actions, deterministic dialog/popup/download reporting, `storageState`, persistent profiles, or Docker runtime verification.
+The service is now a real narrow capture baseline, but it still should not be mistaken for a general browser worker. It does not yet support broader actions, `storageState`, persistent profiles, Docker runtime verification, or container hardening.
 
 **Expected next fix:**
 
-Verify isolated-session state behavior before adding any saved state or profile reuse.
+Add Docker runtime path verification from clean `main` before moving to saved state/profile features.
 
 **Acceptance evidence:**
 
 - Public URL capture loads through Playwright.
 - Accepted capture response includes real final URL/title/HTTP status.
 - Screenshot, HTML, and text artifacts are reported only when files exist.
-- Accepted capture failures return structured `capture_failed` data, clean page artifacts, and persist `response.json`.
-- Blocked redirected/final URL paths clean page artifacts and return structured blocked envelopes.
+- Accepted capture failures return structured `capture_failed` data, clean page/download artifacts, and persist `response.json`.
+- Blocked redirected/final URL paths clean page/download artifacts and return structured blocked envelopes.
+- Real-browser isolated-session fixture verifies separate jobs do not share cookies, `localStorage`, or `sessionStorage`.
+- Deterministic tests cover dialogs, popups, downloads, download filename sanitization/deduplication, response-envelope wiring, and cleanup behavior.
 
 ---
 
