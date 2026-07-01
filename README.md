@@ -19,8 +19,8 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 
 - `package.json` with `npm test` and `npm start` scripts plus Playwright dependency.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
-- `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`.
-- `browser-capture.js` for isolated Playwright `capturePage` execution, redirect/final URL policy checks, HTML/text capture, screenshot capture, and cleanup.
+- `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`, including Playwright Chromium installation.
+- `browser-capture.js` for isolated Playwright `capturePage` execution, redirect/final URL policy checks, HTML/text capture, screenshot capture, deterministic dialog/popup/download reporting, and cleanup.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy.
 - `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
@@ -29,9 +29,9 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `capturePage` as the accepted phase-one action.
 - structured `invalid_action` errors for unknown actions.
 - structured `private_network_denied` errors for blocked private/internal targets.
-- isolated `capturePage` jobs that launch Playwright, capture final URL/title/status, write screenshot/HTML/text artifacts when successful, and persist `request.json` / `response.json`.
-- blocked policy and capture-failure paths that defensively remove page artifacts before returning envelopes with null artifact paths.
-- Node test-runner coverage for the envelope, service responses, listen config, action validation, URL policy, redirect/final URL policy re-checking, artifact persistence, and cleanup behavior.
+- isolated `capturePage` jobs that launch Playwright, capture final URL/title/status, write screenshot/HTML/text artifacts when successful, report dialog/popup/download events, and persist `request.json` / `response.json`.
+- blocked policy and capture-failure paths that defensively remove page/download artifacts before returning envelopes with null artifact paths.
+- Node test-runner coverage for the envelope, service responses, listen config, action validation, URL policy, redirect/final URL policy re-checking, artifact persistence, isolated-session state verification, deterministic browser event reporting, and cleanup behavior.
 
 Known intended longer-term flow:
 
@@ -61,7 +61,6 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 - `IMPLEMENTATION_APPROACH.md` — brick-by-brick implementation guardrails: vertical slices, TDD, branch/commit discipline, milestone definition of done.
 - `IMPLEMENTATION_DEPENDENCY_MAP.md` — dependency order for slices and blockers requiring human input.
 - `PHASE_ONE_SCOPE.md` — proposed phase-one includes/excludes and completion gate.
-- `TODAY_GOALS_2026-06-27.md` — seven main goals for today before deeper implementation: decision log, acceptance tests, current-state snapshot, dependency map, targeted research, phase-one scope, reusable skill alignment.
 - `BROWSER_WORKER_IMPLEMENTATION_SPEC.md` — detailed implementation spine for API contract, artifacts, sessions, network policy, reliability/error taxonomy, actions, and acceptance tests.
 - `RESEARCH_NOTES.md` — public research findings and practical patterns.
 - `TARGETED_RESEARCH_2026-06-27.md` — focused research on Playwright contexts/session state, Node SSRF/private-IP blocking, and traces/artifacts.
@@ -76,11 +75,10 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ## Next implementation step
 
-Verify isolated-session state behavior: two default `capturePage` jobs must not share cookies, `localStorage`, or `sessionStorage`.
+Add Docker runtime path verification from clean `main`.
 
 After that:
 
-1. add deterministic dialog/popup/download reporting;
-2. add Docker runtime path verification;
-3. design and implement explicit `storageState` mode;
-4. only then consider named persistent profile support and broader bounded browser actions.
+1. design and implement explicit `storageState` mode;
+2. only then consider named persistent profile support and broader bounded browser actions;
+3. apply container hardening after the core acceptance path is proven.
