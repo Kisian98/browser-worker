@@ -17,15 +17,17 @@ The current `/DATA/browser-stack` tree holds the planning/rebuild docs and the n
 
 Implementation has started. The current checked-in/runtime-visible pieces are:
 
-- `package.json` with `npm test` and `npm start` scripts plus Playwright dependency.
+- `package.json` with `npm test` and `npm start` scripts plus an exact Playwright dependency pin matching the Docker runtime image.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
-- `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`, including Playwright Chromium installation.
+- `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`, including Playwright Chromium installation, plus Docker runtime verification.
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore`, and `scripts/verify-docker-runtime.sh` for minimal Docker runtime path verification.
 - `browser-capture.js` for isolated Playwright `capturePage` execution, DNS-pinned same-host request enforcement, HTML/text capture, screenshot capture, deterministic dialog/popup/download reporting, deadlines, and cleanup.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
 - `url-policy.js` for pre-navigation URL/private-network policy and per-job pinned address reuse.
 - `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
 - `server.js` with `/health`, `POST /v1/browser/jobs`, bounded request bodies, job deadlines, and process-level concurrency admission control.
 - direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
+- Docker startup binding the service to `0.0.0.0` inside the container while publishing only `127.0.0.1:3080:3080` on the host by default.
 - `capturePage` as the accepted phase-one action.
 - structured `invalid_action` errors for unknown actions.
 - structured `private_network_denied` errors for blocked private/internal targets.
@@ -48,6 +50,37 @@ PORT=3080 npm start
 curl -sS http://127.0.0.1:3080/health
 curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage"}'
 ```
+
+## Docker runtime verification
+
+Run the full Docker smoke path:
+
+```bash
+bash scripts/verify-docker-runtime.sh
+```
+
+On ZimaOS, preserve the Docker client config location when needed:
+
+```bash
+sudo DOCKER_CONFIG=/DATA/docker-client bash scripts/verify-docker-runtime.sh
+```
+
+The verification script:
+
+1. builds the Docker image;
+2. runs `npm test` inside the container;
+3. starts the service with Compose;
+4. checks `GET /health` from the host;
+5. posts a `capturePage` job for `https://example.com`;
+6. verifies `request.json`, `response.json`, `screenshot.png`, `page.html`, `text.txt`, and `downloads/` under the mounted artifact root.
+
+Manual Compose start:
+
+```bash
+sudo DOCKER_CONFIG=/DATA/docker-client BROWSER_WORKER_HOST_ARTIFACT_ROOT=/DATA/browser-stack/artifacts docker compose up --build
+```
+
+By default, Compose publishes only `127.0.0.1:3080:3080`. The service binds `0.0.0.0` inside the container so that the host-local port mapping can reach it without exposing the host port publicly.
 
 ## Runtime safety defaults
 
@@ -85,10 +118,9 @@ Each accepted hostname is resolved once before capture. Chromium is launched wit
 
 ## Next implementation step
 
-Add Docker runtime path verification from clean `main`.
+After Docker runtime verification is merged:
 
-After that:
-
-1. design and implement explicit `storageState` mode;
-2. only then consider named persistent profile support and broader bounded browser actions;
-3. apply container hardening after the core acceptance path is proven.
+1. populate the structured extraction envelope from the captured page output;
+2. refine slow-body request handling and explicit server timeouts;
+3. add a real-Chromium DNS pinning/rebinding regression when the runtime fixture permits it;
+4. only then proceed to explicit `storageState` design.

@@ -1,0 +1,12 @@
+node_modules/
+artifacts/
+screenshots/
+shots/
+.git/
+.env
+.env.*
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/

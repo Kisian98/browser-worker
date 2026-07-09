@@ -1,0 +1,11 @@
+services:
+  browser-worker:
+    build: .
+    environment:
+      PORT: "3080"
+      BROWSER_WORKER_HOST: "0.0.0.0"
+      BROWSER_WORKER_ARTIFACT_ROOT: "/artifacts"
+    ports:
+      - "${BROWSER_WORKER_HOST_BIND:-127.0.0.1}:${BROWSER_WORKER_HOST_PORT:-3080}:3080"
+    volumes:
+      - "${BROWSER_WORKER_HOST_ARTIFACT_ROOT:-./artifacts}:/artifacts"

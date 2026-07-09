@@ -1,7 +1,7 @@
 # Browser Worker Acceptance Tests
 
 Date created: 2026-06-27  
-Last synced: 2026-06-29 after PR #14
+Last synced: 2026-07-09 for Docker runtime verification repair
 
 This checklist defines what must be true before phase-one browser-worker implementation is considered real. It is intentionally evidence-based: a checkbox is not complete unless there is a command, output, artifact path, or source-grounded inspection proving it.
 
@@ -15,25 +15,27 @@ This checklist defines what must be true before phase-one browser-worker impleme
 
 ## Current baseline
 
-As of 2026-06-29:
+As of 2026-07-09:
 
 - `/DATA/browser-stack` has a minimal Node HTTP service with isolated Playwright `capturePage` baseline.
 - `GET /health` exists.
 - `POST /v1/browser/jobs` exists.
 - `response-envelope.js` exists.
 - `browser-capture.js` exists.
-- CI passed on PR #14 before merge.
-- Accepted public `capturePage` jobs now launch Playwright, capture final URL/title/status, persist request/response JSON, and write screenshot, HTML, and text artifacts when successful.
-- Redirect and final URL policy re-checking is wired into the isolated capture flow.
-- Blocked policy and capture-failure paths defensively remove screenshot, HTML, and text artifacts before returning envelopes with null artifact paths.
-- Dialog, popup/new-tab, and download events are now reported through structured capturePage output and covered by controlled fixture tests.
-- Broader browser actions, `storageState`, and persistent profiles are still intentionally not connected.
+- CI covers the Node test suite with real Playwright Chromium installation.
+- Accepted public `capturePage` jobs launch Playwright, capture final URL/title/status, persist request/response JSON, and write screenshot, HTML, and text artifacts when successful.
+- Accepted hostnames are resolved once per job and pinned into Chromium; cross-host redirects/resources, service workers, and WebSockets are denied under the current strict policy.
+- Request bodies, browser-job duration, and process-level job concurrency are bounded.
+- Blocked policy and capture-failure paths defensively remove screenshot, HTML, text, and download artifacts before returning envelopes with null artifact paths.
+- Dialog, popup/new-tab, and download events are reported through structured capturePage output and covered by controlled fixture tests.
+- Minimal Docker runtime verification is implemented with `Dockerfile`, `docker-compose.yml`, and `scripts/verify-docker-runtime.sh`; evidence is produced by the Docker runtime CI job or the same script on ZimaOS.
+- Broader browser actions, `storageState`, persistent profiles, and container hardening are still intentionally not connected.
 
 ## Phase-one acceptance checklist
 
 ### A-001 — Test suite runs cleanly
 
-**Status:** Verified in CI for PR #14 / local smoke evidence still useful  
+**Status:** Verified in CI / local smoke evidence still useful  
 **Requirement:** `npm test` passes from `/DATA/browser-stack`.  
 **Verification command:**
 
@@ -41,7 +43,7 @@ As of 2026-06-29:
 npm test
 ```
 
-**Acceptance evidence:** CI passed on the PR #14 head before merge. Local command output remains useful for environment-specific verification.
+**Acceptance evidence:** CI has passed for the implemented service and hardening slices. Docker runtime verification also runs `npm test` inside the container.
 
 ### A-002 — Service starts locally
 
@@ -69,7 +71,7 @@ curl -sS http://127.0.0.1:3080/health
 
 ### A-004 — Job endpoint rejects invalid JSON cleanly
 
-**Status:** Skeleton only  
+**Status:** Verified in automated tests  
 **Requirement:** Invalid JSON returns HTTP 400 and a structured response envelope with `ok: false`, `status: failed`, and error code `invalid_json`.  
 **Verification command:**
 
@@ -77,11 +79,11 @@ curl -sS http://127.0.0.1:3080/health
 printf '{bad json' | curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' --data-binary @-
 ```
 
-**Acceptance evidence required:** HTTP 400 and structured error envelope.
+**Acceptance evidence:** Server tests cover invalid JSON. Hardening tests also cover the bounded request-body path and structured HTTP 413 `request_body_too_large` response.
 
 ### A-005 — Job endpoint rejects invalid URLs cleanly
 
-**Status:** Skeleton only  
+**Status:** Verified in automated tests  
 **Requirement:** Missing, relative, malformed, or non-HTTP(S) URLs return HTTP 400 and structured error code `invalid_url`.  
 **Verification command:**
 
@@ -89,11 +91,11 @@ printf '{bad json' | curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -
 curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"file:///etc/passwd","action":"capturePage"}'
 ```
 
-**Acceptance evidence required:** HTTP 400 and structured `invalid_url` envelope.
+**Acceptance evidence:** URL-policy and server tests cover malformed and unsupported URLs.
 
 ### A-005b — Job endpoint rejects unknown actions cleanly
 
-**Status:** Verified for skeleton  
+**Status:** Verified  
 **Requirement:** Unknown actions return HTTP 400 and structured error code `invalid_action`; phase-one accepts `capturePage`.  
 **Verification command:**
 
@@ -105,8 +107,8 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 
 ### A-006 — Private-network URL is blocked by default
 
-**Status:** Verified for pre-navigation request policy and implemented for redirect/final URL re-checking  
-**Requirement:** Requests for localhost, loopback, RFC1918/private ranges, link-local, metadata IPs, Docker/internal networks, and private-resolving hostnames are denied before browser navigation. Redirected document navigations and final URLs are also checked before capture output is trusted.  
+**Status:** Verified for initial targets, pinned navigation, and intercepted subresources  
+**Requirement:** Requests for localhost, loopback, RFC1918/private ranges, link-local, metadata IPs, Docker/internal networks, and private-resolving hostnames are denied. Accepted hostnames are resolved once and the approved address is reused by both policy evaluation and Chromium. Every HTTP(S) request is intercepted; cross-host redirects and resources are denied.  
 **Verification commands:**
 
 ```bash
@@ -118,7 +120,8 @@ curl -sS -i -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: appl
 **Acceptance evidence:**
 
 - unit tests cover malformed/non-HTTP URLs, loopback, `0.0.0.0`, RFC1918/private, metadata, IPv6 loopback/unique-local, IPv4-mapped blocked targets, DNS-resolution failure handling, and hostnames resolving to blocked IPs;
-- server test covers loopback rejection with structured `private_network_denied`;
+- server tests cover loopback rejection with structured `private_network_denied`;
+- hardening tests cover pinned-address reuse, Chromium resolver rules, cross-host denial, private subresource blocking, service-worker blocking, and WebSocket blocking;
 - browser-capture tests cover redirected private document navigation being aborted before screenshot capture;
 - server tests cover blocked policy responses cleaning page artifacts and persisting structured blocked envelopes.
 
@@ -134,8 +137,9 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 **Acceptance evidence:**
 
-- server test covers accepted `capturePage` response shape with screenshot, HTML, and text path reporting only after files exist;
-- earlier local smoke test against `https://example.com` returned `ok: true`, `finalUrl: https://example.com/`, title `Example Domain`, HTTP status `200`, screenshot path under `jobs/<jobId>/screenshot.png`, and no `browser_execution_not_yet_connected` warning.
+- server tests cover accepted `capturePage` response shape with screenshot, HTML, and text path reporting only after files exist;
+- earlier local smoke evidence returned `ok: true`, `finalUrl: https://example.com/`, title `Example Domain`, HTTP status `200`, and screenshot output under the job directory;
+- Docker runtime verification posts `capturePage` for `https://example.com` from the containerized service and checks the structured response.
 
 ### A-008 — Screenshot artifact is written
 
@@ -143,9 +147,9 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 **Requirement:** A capture job writes a screenshot under that job's artifact directory when screenshot capture succeeds.  
 **Acceptance evidence:**
 
-- server test injects a capture implementation that writes a screenshot file, verifies `artifacts.screenshot` is non-null, and verifies the screenshot file exists on disk;
-- browser-capture test verifies screenshot creation on successful capture;
-- local smoke test produced a screenshot at `jobs/<jobId>/screenshot.png` with non-zero size (`17117` bytes).
+- server tests verify screenshot paths are reported only after files exist;
+- browser-capture tests verify screenshot creation on successful capture;
+- Docker runtime verification checks that `screenshot.png` exists and is non-empty under the mounted artifact root.
 
 ### A-009 — HTML and text artifacts are written
 
@@ -153,45 +157,45 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 **Requirement:** A successful capture job writes `page.html` and `text.txt` under that job's artifact directory.  
 **Acceptance evidence:**
 
-- `browser-capture` test verifies `page.content()` is written to `page.html` and visible body text is written to `text.txt` on successful capture;
-- server test verifies `artifacts.html` and `artifacts.text` are reported only when the files exist;
-- server tests verify failed and blocked jobs clean partial HTML/text artifacts before returning null paths.
+- browser-capture tests verify `page.content()` is written to `page.html` and visible body text is written to `text.txt`;
+- server tests verify HTML/text paths are reported only when files exist and partial files are cleaned on failure or policy block;
+- Docker runtime verification checks that `page.html` and `text.txt` exist and are non-empty under the mounted artifact root.
 
 ### A-010 — Request and response JSON are persisted
 
 **Status:** Verified for accepted jobs and failure/blocked paths  
 **Requirement:** Each accepted job writes `request.json` and `response.json` into the job artifact directory.  
-**Acceptance evidence:** Server tests create a temporary artifact root, submit valid `capturePage` requests, verify both files exist as valid JSON, check `request.json` equals the submitted request, and check `response.json` equals the returned envelope.
+**Acceptance evidence:** Server tests verify both JSON files and their contents. Docker runtime verification also checks both files under the mounted artifact root.
 
 ### A-011 — Response envelope points to correct artifact paths
 
 **Status:** Verified for accepted jobs  
 **Requirement:** JSON responses include deterministic artifact directory/path metadata matching the files written on disk.  
-**Acceptance evidence:** Server tests verify `artifacts.directory` is `jobs/<jobId>`, `artifacts.request` and `artifacts.response` point under that directory, the job directory exists, `downloads/` exists under the job directory, and screenshot/HTML/text paths are only non-null when the files exist.
+**Acceptance evidence:** Server tests verify job-relative request, response, screenshot, HTML, text, and download paths. Docker runtime verification repeats the filesystem path check against the host-mounted artifact directory.
 
 ### A-012 — Browser resources are cleaned up after each job
 
 **Status:** Verified for isolated Playwright baseline  
 **Requirement:** Browser contexts/pages/processes do not leak across completed isolated jobs.  
-**Acceptance evidence:** Dedicated `browser-capture` unit tests verify page, context, and browser `close()` are called on both success and failure paths.
+**Acceptance evidence:** Dedicated browser-capture tests verify page, context, and browser close behavior on success and failure. Job deadlines abort captures and trigger cleanup.
 
 ### A-013 — Dialogs are handled deterministically
 
 **Status:** Verified  
 **Requirement:** Alert/confirm/prompt dialogs do not hang jobs; default policy dismisses or records them.  
-**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a dialog event, `runIsolatedCapturePage` dismisses it, and the job completes with the dialog reported in `events.dialogs`.
+**Acceptance evidence:** Controlled fixture tests dismiss and report dialogs in `events.dialogs`.
 
 ### A-014 — Downloads are captured under job artifacts
 
 **Status:** Verified  
 **Requirement:** Downloads triggered during a job are saved under the job's `downloads/` artifact subdirectory and reported in the response.  
-**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a download event, `runIsolatedCapturePage` sanitizes the suggested filename, saves the file under the job downloads directory, and reports the saved path via `events.downloads` and `artifacts.downloads`.
+**Acceptance evidence:** Controlled fixture tests sanitize filenames, save downloads, report paths, handle duplicates, and clean failed-job artifacts.
 
 ### A-015 — Popups/new tabs are recorded or controlled
 
 **Status:** Verified  
-**Requirement:** Popup/new-tab behavior is not silently lost; it is recorded, blocked, or folded into structured output according to policy.  
-**Acceptance evidence:** Controlled fixture test in `test/browser-capture.test.js` emits a popup event, `runIsolatedCapturePage` records the popup URL/title, and the job completes without leaking browser pages.
+**Requirement:** Popup/new-tab behavior is recorded, blocked, or folded into structured output according to policy.  
+**Acceptance evidence:** Controlled fixture tests record popup URL/title without misclassifying or closing the primary capture page.
 
 ### A-016 — Login/captcha/block signals are represented
 
@@ -203,7 +207,7 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 **Status:** Verified for real-browser fixture  
 **Requirement:** Two isolated jobs do not share cookies/localStorage/sessionStorage.  
-**Acceptance evidence:** `test/browser-capture.test.js` runs a controlled real-browser fixture through `runIsolatedCapturePage` twice against the same local origin, sets cookie/localStorage/sessionStorage in job 1, and verifies job 2 does not read those values.
+**Acceptance evidence:** A controlled real-browser fixture runs two captures against the same local origin and proves job 2 cannot read state written by job 1.
 
 ### A-018 — `storageState` mode is explicit and segregated
 
@@ -214,7 +218,7 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 ### A-019 — Named persistent profile is explicit and locked down
 
 **Status:** Not started / later phase candidate  
-**Requirement:** Persistent profile use requires an explicit approved name such as `marketing-tools`; profile data is segregated from run artifacts and not used for untrusted broad browsing.  
+**Requirement:** Persistent profile use requires an explicit approved name; profile data is segregated from run artifacts and not used for untrusted broad browsing.  
 **Acceptance evidence required:** Explicit profile request works; default jobs do not use it; concurrent access policy is defined.
 
 ### A-020 — Old shell/demo baseline remains preserved
@@ -225,28 +229,38 @@ curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: applica
 
 ### A-021 — Docker/container run path works
 
-**Status:** Not started  
-**Requirement:** The service builds/runs through the approved Docker/Compose path using the environment-specific Docker config where relevant.  
-**Verification command shape:**
+**Status:** Implemented, unverified until Docker runtime script or CI job passes  
+**Requirement:** The service builds/runs through the approved Docker/Compose path using the environment-specific Docker config where relevant. The Playwright package and Docker image use the same exact version.  
+**Verification commands:**
 
 ```bash
-sudo DOCKER_CONFIG=/DATA/docker-client docker compose up --build
+bash scripts/verify-docker-runtime.sh
+sudo DOCKER_CONFIG=/DATA/docker-client bash scripts/verify-docker-runtime.sh
 ```
 
-**Acceptance evidence required:** Build/start output, health check from host, and artifact mount verification.
+**Acceptance evidence required:** Successful script output showing image build, `npm test` inside the container, service start, host health check, public `capturePage`, and artifact mount verification.
+
+The script verifies:
+
+- Docker image build succeeds;
+- `npm test` passes inside the container;
+- service starts with Compose;
+- `GET /health` returns `ok: true`, `service: browser-worker`, and `status: healthy`;
+- `POST /v1/browser/jobs` can run `capturePage` against `https://example.com` through the containerized service;
+- `request.json`, `response.json`, `screenshot.png`, `page.html`, `text.txt`, and `downloads/` exist under the host-mounted artifact path.
 
 ### A-022 — Service is not publicly exposed by accident
 
-**Status:** Verified for direct-run default  
+**Status:** Verified for direct-run default; Docker localhost publish verification added  
 **Requirement:** Phase-one service binds only to localhost or an explicitly approved internal-only network surface.  
 **Acceptance evidence:**
 
-- `server.js` now defaults to `127.0.0.1` via `getListenConfig()`.
-- Explicit override requires `BROWSER_WORKER_HOST`.
-- Tests cover default host/port and explicit override.
-- Runtime smoke check on 2026-06-27: `curl http://127.0.0.1:3080/health` returned healthy JSON.
+- `server.js` defaults to `127.0.0.1` via `getListenConfig()`;
+- explicit override requires `BROWSER_WORKER_HOST`;
+- tests cover default host/port and explicit override;
+- `docker-compose.yml` publishes `127.0.0.1:3080:3080` by default while setting `BROWSER_WORKER_HOST=0.0.0.0` only inside the container so the host-local mapping works.
 
-**Remaining note:** Docker/container binding still needs separate verification when the Docker runtime path is implemented.
+**Remaining note:** Docker/container binding is fully verified once the Docker runtime script or CI job passes.
 
 ## Phase-one completion gate
 
