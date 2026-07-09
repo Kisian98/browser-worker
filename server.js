@@ -6,7 +6,11 @@ import { randomUUID } from 'node:crypto';
 import { createJobArtifacts, prepareJobArtifacts, writeJsonFile } from './artifacts.js';
 import { runIsolatedCapturePage, fileExists } from './browser-capture.js';
 import { createResponseEnvelope } from './response-envelope.js';
-import { evaluateUrlPolicy } from './url-policy.js';
+import { createPinnedUrlPolicy, evaluateUrlPolicy } from './url-policy.js';
+
+const DEFAULT_MAX_REQUEST_BODY_BYTES = 64 * 1024;
+const DEFAULT_JOB_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_CONCURRENT_JOBS = 2;
 
 function nowIso() {
   return new Date().toISOString();
@@ -25,11 +29,35 @@ function writeJson(res, statusCode, body) {
   res.end(payload);
 }
 
-async function readJson(req) {
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function requestBodyTooLargeError(maxBytes) {
+  const error = new Error(`Request body exceeds the ${maxBytes}-byte limit.`);
+  error.code = 'request_body_too_large';
+  error.maxBytes = maxBytes;
+  return error;
+}
+
+async function readJson(req, { maxBytes }) {
+  const declaredLength = Number(req.headers['content-length']);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw requestBodyTooLargeError(maxBytes);
+  }
+
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let totalBytes = 0;
+  for await (const chunk of req) {
+    totalBytes += chunk.length;
+    if (totalBytes > maxBytes) {
+      throw requestBodyTooLargeError(maxBytes);
+    }
+    chunks.push(chunk);
+  }
   if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8'));
 }
 
 function validateAction(value) {
@@ -160,22 +188,65 @@ async function writeBlockedPolicyEnvelope(res, {
   return writeJson(res, 200, envelope);
 }
 
-async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
+function timeoutError(timeoutMs) {
+  const error = new Error(`Browser job exceeded the ${timeoutMs}ms deadline.`);
+  error.code = 'job_timed_out';
+  error.timeoutMs = timeoutMs;
+  return error;
+}
+
+async function captureWithDeadline(capturePage, options, timeoutMs) {
+  const controller = new AbortController();
+  let timeoutId;
+  const capturePromise = Promise.resolve().then(() => capturePage({
+    ...options,
+    signal: controller.signal,
+    timeoutMs
+  }));
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = timeoutError(timeoutMs);
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+    timeoutId.unref?.();
+  });
+
+  try {
+    return await Promise.race([capturePromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function handleBrowserJob(req, res, {
+  artifactRoot,
+  capturePage,
+  maxRequestBodyBytes,
+  jobTimeoutMs
+}) {
   const jobId = makeJobId();
   const startedAt = nowIso();
   let requestBody;
 
   try {
-    requestBody = await readJson(req);
+    requestBody = await readJson(req, { maxBytes: maxRequestBodyBytes });
   } catch (error) {
     const endedAt = nowIso();
-    return writeJson(res, 400, createResponseEnvelope({
+    const tooLarge = error.code === 'request_body_too_large';
+    return writeJson(res, tooLarge ? 413 : 400, createResponseEnvelope({
       ok: false,
       jobId,
       startedAt,
       endedAt,
       status: 'failed',
-      errors: [{ code: 'invalid_json', message: error.message, phase: 'requestParsing', retryable: false }]
+      errors: [{
+        code: tooLarge ? 'request_body_too_large' : 'invalid_json',
+        message: error.message,
+        phase: 'requestParsing',
+        retryable: false,
+        detail: tooLarge ? { maxBytes: error.maxBytes } : null
+      }]
     }));
   }
 
@@ -223,24 +294,30 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
     }));
   }
 
+  const pinnedPolicy = createPinnedUrlPolicy({
+    targetUrl: urlPolicy.url.toString(),
+    resolvedAddresses: urlPolicy.resolvedAddresses
+  });
   const jobArtifacts = createJobArtifacts({ artifactRoot, jobId });
   await prepareJobArtifacts(jobArtifacts);
   await writeJsonFile(jobArtifacts.absolute.request, requestBody);
 
   let captureResult;
   try {
-    captureResult = await capturePage({
+    captureResult = await captureWithDeadline(capturePage, {
       targetUrl: urlPolicy.url.toString(),
+      resolvedAddresses: urlPolicy.resolvedAddresses,
       screenshotPath: jobArtifacts.absolute.screenshot,
       htmlPath: jobArtifacts.absolute.html,
       textPath: jobArtifacts.absolute.text,
       downloadsDirectory: jobArtifacts.absolute.downloads,
       downloadsRelativePath: jobArtifacts.relative.downloads
-    });
+    }, jobTimeoutMs);
   } catch (error) {
     await removeArtifactFiles(jobArtifacts);
     const screenshotCreated = await fileExists(jobArtifacts.absolute.screenshot);
     const endedAt = nowIso();
+    const timedOut = error.code === 'job_timed_out';
     const envelope = createResponseEnvelope({
       ok: false,
       jobId,
@@ -262,10 +339,13 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
         downloads: []
       },
       errors: [{
-        code: 'capture_failed',
-        message: 'Page capture failed before a browser result could be returned.',
+        code: timedOut ? 'job_timed_out' : 'capture_failed',
+        message: timedOut
+          ? `Browser job exceeded the ${jobTimeoutMs}ms deadline.`
+          : 'Page capture failed before a browser result could be returned.',
         phase: 'capture',
-        retryable: true
+        retryable: true,
+        detail: timedOut ? { timeoutMs: jobTimeoutMs } : null
       }]
     });
     await writeJsonFile(jobArtifacts.absolute.response, envelope);
@@ -291,7 +371,7 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   }
 
   const finalUrlPolicy = captureResult.finalUrl
-    ? await evaluateUrlPolicy({ url: captureResult.finalUrl })
+    ? await pinnedPolicy({ url: captureResult.finalUrl })
     : { ok: true };
 
   if (!finalUrlPolicy.ok) {
@@ -350,8 +430,61 @@ async function handleBrowserJob(req, res, { artifactRoot, capturePage }) {
   return writeJson(res, 200, envelope);
 }
 
+export function createConcurrencyGate(maxConcurrentJobs) {
+  const limit = positiveInteger(maxConcurrentJobs, DEFAULT_MAX_CONCURRENT_JOBS);
+  let activeJobs = 0;
+
+  return {
+    tryAcquire() {
+      if (activeJobs >= limit) return null;
+      activeJobs += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        activeJobs = Math.max(0, activeJobs - 1);
+      };
+    },
+    snapshot() {
+      return { activeJobs, maxConcurrentJobs: limit };
+    }
+  };
+}
+
+function writeWorkerBusy(res, gate) {
+  const startedAt = nowIso();
+  const endedAt = nowIso();
+  const { activeJobs, maxConcurrentJobs } = gate.snapshot();
+  return writeJson(res, 429, createResponseEnvelope({
+    ok: false,
+    jobId: makeJobId(),
+    startedAt,
+    endedAt,
+    status: 'failed',
+    errors: [{
+      code: 'worker_busy',
+      message: 'Browser worker is at its concurrent job limit.',
+      phase: 'admissionControl',
+      retryable: true,
+      detail: { activeJobs, maxConcurrentJobs }
+    }]
+  }));
+}
+
 export function createServer(options = {}) {
-  const config = { artifactRoot: 'artifacts', capturePage: runIsolatedCapturePage, ...options };
+  const config = {
+    artifactRoot: 'artifacts',
+    capturePage: runIsolatedCapturePage,
+    maxRequestBodyBytes: DEFAULT_MAX_REQUEST_BODY_BYTES,
+    jobTimeoutMs: DEFAULT_JOB_TIMEOUT_MS,
+    maxConcurrentJobs: DEFAULT_MAX_CONCURRENT_JOBS,
+    ...options
+  };
+  config.maxRequestBodyBytes = positiveInteger(config.maxRequestBodyBytes, DEFAULT_MAX_REQUEST_BODY_BYTES);
+  config.jobTimeoutMs = positiveInteger(config.jobTimeoutMs, DEFAULT_JOB_TIMEOUT_MS);
+  config.maxConcurrentJobs = positiveInteger(config.maxConcurrentJobs, DEFAULT_MAX_CONCURRENT_JOBS);
+  const gate = options.concurrencyGate ?? createConcurrencyGate(config.maxConcurrentJobs);
+
   return http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && req.url === '/health') {
@@ -364,7 +497,13 @@ export function createServer(options = {}) {
       }
 
       if (req.method === 'POST' && req.url === '/v1/browser/jobs') {
-        return await handleBrowserJob(req, res, config);
+        const release = gate.tryAcquire();
+        if (!release) return writeWorkerBusy(res, gate);
+        try {
+          return await handleBrowserJob(req, res, config);
+        } finally {
+          release();
+        }
       }
 
       return writeJson(res, 404, { ok: false, error: 'not_found' });
@@ -382,9 +521,17 @@ export function getListenConfig(env = process.env) {
   };
 }
 
+export function getRuntimeLimits(env = process.env) {
+  return {
+    maxRequestBodyBytes: positiveInteger(env.BROWSER_WORKER_MAX_REQUEST_BODY_BYTES, DEFAULT_MAX_REQUEST_BODY_BYTES),
+    jobTimeoutMs: positiveInteger(env.BROWSER_WORKER_JOB_TIMEOUT_MS, DEFAULT_JOB_TIMEOUT_MS),
+    maxConcurrentJobs: positiveInteger(env.BROWSER_WORKER_MAX_CONCURRENT_JOBS, DEFAULT_MAX_CONCURRENT_JOBS)
+  };
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const { port, host, artifactRoot } = getListenConfig();
-  createServer({ artifactRoot }).listen(port, host, () => {
+  createServer({ artifactRoot, ...getRuntimeLimits() }).listen(port, host, () => {
     console.log(`browser-worker listening on ${host}:${port}`);
   });
 }
