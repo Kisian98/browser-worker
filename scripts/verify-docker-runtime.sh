@@ -28,7 +28,11 @@ require_json_field() {
   local pattern="$2"
   local message="$3"
 
-  grep -Eq "$pattern" "$file" || fail "$message"
+  if ! grep -Eq "$pattern" "$file"; then
+    echo "Response payload:" >&2
+    cat "$file" >&2
+    fail "$message"
+  fi
 }
 
 extract_json_string() {
@@ -56,7 +60,7 @@ rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
 
 echo "Building Docker image..."
-docker compose -f "$COMPOSE_FILE" build "$SERVICE"
+docker compose -f "$COMPOSE_FILE" build --quiet "$SERVICE"
 
 echo "Running npm test inside Docker..."
 docker compose -f "$COMPOSE_FILE" run --rm "$SERVICE" npm test
