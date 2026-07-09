@@ -3,6 +3,7 @@ import net from 'node:net';
 
 const PRIVATE_NETWORK_DENIED = 'private_network_denied';
 const INVALID_URL = 'invalid_url';
+const CROSS_ORIGIN_DENIED = 'cross_origin_request_denied';
 
 function makeError(code, message, detail = {}, phase = 'urlPolicy', retryable = false) {
   return { code, message, phase, retryable, detail };
@@ -128,6 +129,11 @@ function classifyIpv6(address) {
   return { blocked: false, reason: null };
 }
 
+function normalizeHost(host) {
+  const normalized = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  return normalized.toLowerCase();
+}
+
 async function defaultResolveHostname(host) {
   const results = await dns.lookup(host, { all: true, verbatim: true });
   return [...new Set(results.map((result) => result.address))];
@@ -146,7 +152,7 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
   }
 
   const host = url.hostname;
-  const normalizedHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  const normalizedHost = normalizeHost(host);
   const literalVersion = net.isIP(normalizedHost);
 
   let resolvedAddresses;
@@ -167,6 +173,17 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
     }
   }
 
+  if (!Array.isArray(resolvedAddresses) || resolvedAddresses.length === 0) {
+    return {
+      ok: false,
+      error: makeError(INVALID_URL, 'URL host did not resolve to an address', {
+        field: 'url',
+        host: normalizedHost,
+        reason: 'dns_resolution_empty'
+      })
+    };
+  }
+
   for (const address of resolvedAddresses) {
     const classification = classifyIp(address);
     if (classification.blocked) {
@@ -182,5 +199,48 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
     }
   }
 
-  return { ok: true, url, resolvedAddresses };
+  return { ok: true, url, resolvedAddresses: [...resolvedAddresses] };
+}
+
+export function createPinnedUrlPolicy({ targetUrl, resolvedAddresses }) {
+  const initialUrl = new URL(targetUrl);
+  const allowedHost = normalizeHost(initialUrl.hostname);
+  const pinnedAddresses = [...new Set(resolvedAddresses ?? [])];
+
+  return async function evaluatePinnedUrlPolicy({ url: value }) {
+    let candidate;
+    try {
+      candidate = new URL(value);
+    } catch {
+      return { ok: false, error: makeError(INVALID_URL, 'URL must be a valid absolute URL', { field: 'url' }) };
+    }
+
+    const candidateHost = normalizeHost(candidate.hostname);
+    if (candidateHost !== allowedHost) {
+      if (net.isIP(candidateHost)) {
+        const literalPolicy = await evaluateUrlPolicy({ url: candidate.toString() });
+        if (!literalPolicy.ok) return literalPolicy;
+      }
+
+      return {
+        ok: false,
+        error: makeError(
+          CROSS_ORIGIN_DENIED,
+          'Cross-origin requests are blocked in DNS-pinned capture mode.',
+          { field: 'url', host: candidateHost, allowedHost },
+          'postNavigationPolicy',
+          false
+        )
+      };
+    }
+
+    if (pinnedAddresses.length === 0) {
+      return { ok: true, url: candidate, resolvedAddresses: [] };
+    }
+
+    return evaluateUrlPolicy({
+      url: candidate.toString(),
+      resolveHostname: async () => pinnedAddresses
+    });
+  };
 }
