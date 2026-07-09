@@ -1,11 +1,36 @@
+import net from 'node:net';
 import path from 'node:path';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 
-import { evaluateUrlPolicy } from './url-policy.js';
+import { createPinnedUrlPolicy } from './url-policy.js';
 
-async function defaultLaunchBrowser() {
+function formatResolverAddress(address) {
+  return net.isIP(address) === 6 ? `[${address}]` : address;
+}
+
+export function buildHostResolverRules({ targetUrl, resolvedAddresses = [] }) {
+  const url = new URL(targetUrl);
+  const host = url.hostname.startsWith('[') && url.hostname.endsWith(']')
+    ? url.hostname.slice(1, -1)
+    : url.hostname;
+  const address = resolvedAddresses[0];
+
+  if (net.isIP(host)) {
+    return 'MAP * ~NOTFOUND';
+  }
+  if (!address) {
+    throw new Error('A validated address is required for DNS-pinned capture.');
+  }
+
+  return `MAP ${host} ${formatResolverAddress(address)}, MAP * ~NOTFOUND`;
+}
+
+async function defaultLaunchBrowser({ hostResolverRules }) {
   const { chromium } = await import('playwright');
-  return chromium.launch({ headless: true });
+  return chromium.launch({
+    headless: true,
+    args: [`--host-resolver-rules=${hostResolverRules}`]
+  });
 }
 
 export async function fileExists(path) {
@@ -54,18 +79,39 @@ function buildDownloadTargetPath(downloadsDirectory, suggestedFilename, usedDown
   return { safeFilename: candidateFilename, targetPath };
 }
 
+function abortError(reason) {
+  const error = reason instanceof Error ? reason : new Error('Capture aborted.');
+  error.code ??= 'capture_aborted';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError(signal.reason);
+}
+
+function pushWarningOnce(warnings, warning) {
+  if (!warnings.includes(warning)) warnings.push(warning);
+}
+
 export async function runIsolatedCapturePage({
   targetUrl,
+  resolvedAddresses,
   screenshotPath,
   htmlPath,
   textPath,
   downloadsDirectory,
   downloadsPath,
   downloadsRelativePath,
+  signal,
+  timeoutMs = 30_000,
   launchBrowser = defaultLaunchBrowser,
-  evaluatePolicy = evaluateUrlPolicy
+  evaluatePolicy
 }) {
-  const browser = await launchBrowser();
+  const hostResolverRules = resolvedAddresses?.length
+    ? buildHostResolverRules({ targetUrl, resolvedAddresses })
+    : 'MAP * ~NOTFOUND';
+  const pinnedPolicy = evaluatePolicy ?? createPinnedUrlPolicy({ targetUrl, resolvedAddresses });
+  let browser;
   let context;
   let page;
   let blockedNavigation = null;
@@ -99,22 +145,55 @@ export async function runIsolatedCapturePage({
     trackEventTask((async () => {
       event.title = await popupPage.title?.().catch(() => null);
       await popupPage.close?.().catch(() => {
-        warnings.push('popup_close_failed');
+        pushWarningOnce(warnings, 'popup_close_failed');
       });
     })());
   }
 
+  const safeClose = async (resource) => {
+    try {
+      await resource?.close?.();
+    } catch {
+      // Best-effort cleanup; preserve the original capture result/error.
+    }
+  };
+  const closeResources = async () => {
+    await safeClose(page);
+    await safeClose(context);
+    await safeClose(browser);
+  };
+  const onAbort = () => {
+    void closeResources();
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+
   try {
+    throwIfAborted(signal);
+    browser = await launchBrowser({
+      targetUrl,
+      resolvedAddresses,
+      hostResolverRules,
+      signal
+    });
+    throwIfAborted(signal);
+
     if (downloadDirectory) {
       await mkdir(downloadDirectory, { recursive: true });
     }
 
-    context = await browser.newContext({
+    const contextOptions = {
       acceptDownloads: true,
       downloadsPath: downloadDirectory ?? undefined
-    });
+    };
+    if (resolvedAddresses?.length) {
+      contextOptions.serviceWorkers = 'block';
+    }
+    context = await browser.newContext(contextOptions);
 
     page = await context.newPage();
+    page.setDefaultTimeout?.(timeoutMs);
+    page.setDefaultNavigationTimeout?.(timeoutMs);
+
     context.on?.('page', (popupPage) => {
       if (popupPage === page) return;
       recordPopup(popupPage);
@@ -126,7 +205,7 @@ export async function runIsolatedCapturePage({
         defaultValue: dialog.defaultValue?.() ?? null
       });
       trackEventTask(dialog.dismiss().catch(() => {
-        warnings.push('dialog_dismiss_failed');
+        pushWarningOnce(warnings, 'dialog_dismiss_failed');
       }));
     });
     page.on?.('popup', recordPopup);
@@ -138,9 +217,9 @@ export async function runIsolatedCapturePage({
         : null;
 
       if (!downloadDirectory) {
-        warnings.push('download_directory_unavailable');
+        pushWarningOnce(warnings, 'download_directory_unavailable');
       } else if (safeFilename && safeFilename !== suggestedFilename) {
-        warnings.push('download_filename_sanitized');
+        pushWarningOnce(warnings, 'download_filename_sanitized');
       }
 
       const event = {
@@ -154,7 +233,7 @@ export async function runIsolatedCapturePage({
 
       if (targetPath) {
         trackEventTask(download.saveAs(targetPath).catch(() => {
-          warnings.push('download_save_failed');
+          pushWarningOnce(warnings, 'download_save_failed');
           event.path = null;
           event.relativePath = null;
         }));
@@ -163,34 +242,44 @@ export async function runIsolatedCapturePage({
 
     await page.route('**/*', async (route) => {
       const request = route.request();
-      const isDocumentNavigation = request.resourceType() === 'document' && request.isNavigationRequest();
+      const requestUrl = request.url();
+      let parsedUrl;
 
-      if (!isDocumentNavigation) {
+      try {
+        parsedUrl = new URL(requestUrl);
+      } catch {
+        await route.abort();
+        pushWarningOnce(warnings, 'invalid_subresource_url_blocked');
+        return;
+      }
+
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
         await route.continue();
         return;
       }
 
-      const requestUrl = request.url();
-      const requestPolicy = requestUrl
-        ? await evaluatePolicy({ url: requestUrl })
-        : { ok: true };
-
+      const requestPolicy = await pinnedPolicy({ url: requestUrl });
       if (!requestPolicy.ok) {
-        const blockedByPrivateNetwork = requestPolicy.error.code === 'private_network_denied';
-        blockedNavigation = {
-          finalUrl: requestUrl,
-          screenshotCreated: false,
-          policyBlocked: true,
-          policyError: {
-            code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : requestPolicy.error.code,
-            message: blockedByPrivateNetwork
-              ? 'Redirected navigation URL was blocked by private-network policy.'
-              : requestPolicy.error.message,
-            phase: 'postNavigationPolicy',
-            retryable: false,
-            detail: requestPolicy.error.detail
-          }
-        };
+        const isDocumentNavigation = request.resourceType() === 'document' && request.isNavigationRequest();
+        if (isDocumentNavigation) {
+          const blockedByPrivateNetwork = requestPolicy.error.code === 'private_network_denied';
+          blockedNavigation = {
+            finalUrl: requestUrl,
+            screenshotCreated: false,
+            policyBlocked: true,
+            policyError: {
+              code: blockedByPrivateNetwork ? 'redirected_private_network_denied' : requestPolicy.error.code,
+              message: blockedByPrivateNetwork
+                ? 'Redirected navigation URL was blocked by private-network policy.'
+                : requestPolicy.error.message,
+              phase: 'postNavigationPolicy',
+              retryable: false,
+              detail: requestPolicy.error.detail
+            }
+          };
+        } else {
+          pushWarningOnce(warnings, 'subresource_request_blocked');
+        }
         await route.abort();
         return;
       }
@@ -200,14 +289,21 @@ export async function runIsolatedCapturePage({
 
     let response;
     try {
-      response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      throwIfAborted(signal);
+      response = await page.goto(targetUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: timeoutMs
+      });
+      throwIfAborted(signal);
     } catch (error) {
       if (!blockedNavigation) {
+        throwIfAborted(signal);
         throw error;
       }
     }
 
     await settleEventTasks();
+    throwIfAborted(signal);
 
     if (blockedNavigation) {
       return {
@@ -224,7 +320,7 @@ export async function runIsolatedCapturePage({
 
     const finalUrl = page.url();
     const finalUrlPolicy = finalUrl
-      ? await evaluatePolicy({ url: finalUrl })
+      ? await pinnedPolicy({ url: finalUrl })
       : { ok: true };
 
     if (!finalUrlPolicy.ok) {
@@ -243,6 +339,7 @@ export async function runIsolatedCapturePage({
       };
     }
 
+    throwIfAborted(signal);
     const html = await page.content();
     await writeFile(htmlPath, html, 'utf8');
 
@@ -252,7 +349,9 @@ export async function runIsolatedCapturePage({
     }).catch(() => '');
     await writeFile(textPath, text, 'utf8');
 
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    throwIfAborted(signal);
+    await page.screenshot({ path: screenshotPath, fullPage: true, timeout: timeoutMs });
+    throwIfAborted(signal);
 
     return {
       finalUrl,
@@ -268,8 +367,7 @@ export async function runIsolatedCapturePage({
       warnings
     };
   } finally {
-    await page?.close?.();
-    await context?.close?.();
-    await browser?.close?.();
+    signal?.removeEventListener('abort', onAbort);
+    await closeResources();
   }
 }
