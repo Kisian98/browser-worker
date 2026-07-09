@@ -42,6 +42,31 @@ extract_json_string() {
   sed -n "s/.*\"${key}\": \"\([^\"]*\)\".*/\1/p" "$file" | head -n 1
 }
 
+extract_artifact_string() {
+  local file="$1"
+  local key="$2"
+
+  awk -v key="$key" '
+    /"artifacts": \{/ {
+      in_artifacts = 1
+      next
+    }
+    in_artifacts && /^  }/ {
+      exit
+    }
+    in_artifacts {
+      marker = "\"" key "\": \""
+      start = index($0, marker)
+      if (start > 0) {
+        value = substr($0, start + length(marker))
+        sub(/\".*/, "", value)
+        print value
+        exit
+      }
+    }
+  ' "$file"
+}
+
 require_artifact_file() {
   local relative_path="$1"
   local label="$2"
@@ -101,12 +126,12 @@ require_json_field "$job_file" '"finalUrl": "https://example.com/"' 'Expected fi
 require_json_field "$job_file" '"httpStatus": 200' 'Expected HTTP 200 from smoke target'
 
 job_id="$(extract_json_string "$job_file" 'jobId')"
-artifact_directory="$(extract_json_string "$job_file" 'directory')"
-request_artifact="$(extract_json_string "$job_file" 'request')"
-response_artifact="$(extract_json_string "$job_file" 'response')"
-screenshot_artifact="$(extract_json_string "$job_file" 'screenshot')"
-html_artifact="$(extract_json_string "$job_file" 'html')"
-text_artifact="$(extract_json_string "$job_file" 'text')"
+artifact_directory="$(extract_artifact_string "$job_file" 'directory')"
+request_artifact="$(extract_artifact_string "$job_file" 'request')"
+response_artifact="$(extract_artifact_string "$job_file" 'response')"
+screenshot_artifact="$(extract_artifact_string "$job_file" 'screenshot')"
+html_artifact="$(extract_artifact_string "$job_file" 'html')"
+text_artifact="$(extract_artifact_string "$job_file" 'text')"
 
 [ -n "$job_id" ] || fail 'Expected jobId in capture response'
 [[ "$artifact_directory" == jobs/job-* ]] || fail "Expected job artifact directory, got: $artifact_directory"
