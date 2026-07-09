@@ -240,6 +240,16 @@ export async function runIsolatedCapturePage({
       }
     });
 
+    if (page.routeWebSocket) {
+      await page.routeWebSocket('**/*', async (webSocketRoute) => {
+        pushWarningOnce(warnings, 'websocket_request_blocked');
+        await webSocketRoute.close({
+          code: 1008,
+          reason: 'WebSocket connections are disabled by capture policy.'
+        });
+      });
+    }
+
     await page.route('**/*', async (route) => {
       const request = route.request();
       const requestUrl = request.url();
