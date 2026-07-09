@@ -20,18 +20,18 @@ Implementation has started. The current checked-in/runtime-visible pieces are:
 - `package.json` with `npm test` and `npm start` scripts plus Playwright dependency.
 - Node runtime expectation: Node `>=20`, with `.nvmrc` set to `20`.
 - `.github/workflows/ci.yml` running the Node test suite on pull requests and pushes to `main`, including Playwright Chromium installation.
-- `browser-capture.js` for isolated Playwright `capturePage` execution, redirect/final URL policy checks, HTML/text capture, screenshot capture, deterministic dialog/popup/download reporting, and cleanup.
+- `browser-capture.js` for isolated Playwright `capturePage` execution, DNS-pinned same-host request enforcement, HTML/text capture, screenshot capture, deterministic dialog/popup/download reporting, deadlines, and cleanup.
 - `response-envelope.js` for the implementation-spec aligned structured job response envelope.
-- `url-policy.js` for pre-navigation URL/private-network policy.
+- `url-policy.js` for pre-navigation URL/private-network policy and per-job pinned address reuse.
 - `artifacts.js` for artifact root-relative job paths, per-job directory creation, downloads directory creation, and JSON file writes.
-- `server.js` with `/health` and `POST /v1/browser/jobs`.
+- `server.js` with `/health`, `POST /v1/browser/jobs`, bounded request bodies, job deadlines, and process-level concurrency admission control.
 - direct-run startup defaulting to `127.0.0.1:3080`, with explicit `BROWSER_WORKER_HOST` / `PORT` override.
 - `capturePage` as the accepted phase-one action.
 - structured `invalid_action` errors for unknown actions.
 - structured `private_network_denied` errors for blocked private/internal targets.
 - isolated `capturePage` jobs that launch Playwright, capture final URL/title/status, write screenshot/HTML/text artifacts when successful, report dialog/popup/download events, and persist `request.json` / `response.json`.
 - blocked policy and capture-failure paths that defensively remove page/download artifacts before returning envelopes with null artifact paths.
-- Node test-runner coverage for the envelope, service responses, listen config, action validation, URL policy, redirect/final URL policy re-checking, artifact persistence, isolated-session state verification, deterministic browser event reporting, and cleanup behavior.
+- Node test-runner coverage for the envelope, service responses, listen config, action validation, URL policy, DNS pinning, subresource enforcement, request limits, deadlines, concurrency, redirect/final URL policy re-checking, artifact persistence, isolated-session state verification, deterministic browser event reporting, and cleanup behavior.
 
 Known intended longer-term flow:
 
@@ -48,6 +48,16 @@ PORT=3080 npm start
 curl -sS http://127.0.0.1:3080/health
 curl -sS -X POST http://127.0.0.1:3080/v1/browser/jobs -H 'content-type: application/json' -d '{"url":"https://example.com","action":"capturePage"}'
 ```
+
+## Runtime safety defaults
+
+Direct-run service limits can be overridden with environment variables:
+
+- `BROWSER_WORKER_MAX_REQUEST_BODY_BYTES` defaults to `65536` bytes.
+- `BROWSER_WORKER_JOB_TIMEOUT_MS` defaults to `30000` milliseconds.
+- `BROWSER_WORKER_MAX_CONCURRENT_JOBS` defaults to `2`; excess jobs receive HTTP `429` with `worker_busy`.
+
+Each accepted hostname is resolved once before capture. Chromium is launched with that approved address pinned, service workers are blocked, and every HTTP(S) request is intercepted. Cross-host redirects and third-party HTTP(S) resources are denied in the current security model; blocked subresources are reported with `subresource_request_blocked`.
 
 ## Documentation map
 
