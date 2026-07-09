@@ -53,13 +53,19 @@ test('runIsolatedCapturePage applies policy to subresources and blocks service w
   const handlers = {};
   const routeActions = [];
   let contextOptions;
+  let webSocketHandler;
+  let webSocketClosed = false;
 
   const page = {
     on: () => {},
     route: async (_pattern, handler) => { handlers.route = handler; },
+    routeWebSocket: async (_pattern, handler) => { webSocketHandler = handler; },
     setDefaultTimeout: () => {},
     setDefaultNavigationTimeout: () => {},
     goto: async () => {
+      await webSocketHandler({
+        close: async () => { webSocketClosed = true; }
+      });
       await handlers.route({
         request: () => ({
           url: () => 'http://127.0.0.1/private.png',
@@ -112,6 +118,8 @@ test('runIsolatedCapturePage applies policy to subresources and blocks service w
 
     assert.deepEqual(routeActions, ['private-abort', 'same-continue']);
     assert.equal(result.warnings.includes('subresource_request_blocked'), true);
+    assert.equal(result.warnings.includes('websocket_request_blocked'), true);
+    assert.equal(webSocketClosed, true);
     assert.equal(contextOptions.serviceWorkers, 'block');
   } finally {
     await rm(artifactRoot, { recursive: true, force: true });
