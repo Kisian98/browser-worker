@@ -1,6 +1,8 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
+import { evaluateCategoryPolicy } from './category-policy.js';
+
 const PRIVATE_NETWORK_DENIED = 'private_network_denied';
 const INVALID_URL = 'invalid_url';
 const CROSS_ORIGIN_DENIED = 'cross_origin_request_denied';
@@ -139,7 +141,12 @@ async function defaultResolveHostname(host) {
   return [...new Set(results.map((result) => result.address))];
 }
 
-export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultResolveHostname }) {
+export async function evaluateUrlPolicy({
+  url: value,
+  resolveHostname = defaultResolveHostname,
+  categoryPolicyBundle = null,
+  phase = 'urlPolicy'
+}) {
   let url;
   try {
     url = new URL(value);
@@ -154,6 +161,18 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
   const host = url.hostname;
   const normalizedHost = normalizeHost(host);
   const literalVersion = net.isIP(normalizedHost);
+
+  const categoryPolicy = evaluateCategoryPolicy({
+    hostname: normalizedHost,
+    policyBundle: categoryPolicyBundle,
+    phase
+  });
+  if (categoryPolicy.blocked) {
+    return {
+      ok: false,
+      error: categoryPolicy.error
+    };
+  }
 
   let resolvedAddresses;
   if (literalVersion) {
@@ -202,7 +221,7 @@ export async function evaluateUrlPolicy({ url: value, resolveHostname = defaultR
   return { ok: true, url, resolvedAddresses: [...resolvedAddresses] };
 }
 
-export function createPinnedUrlPolicy({ targetUrl, resolvedAddresses }) {
+export function createPinnedUrlPolicy({ targetUrl, resolvedAddresses, categoryPolicyBundle = null }) {
   const initialUrl = new URL(targetUrl);
   const allowedHost = normalizeHost(initialUrl.hostname);
   const pinnedAddresses = [...new Set(resolvedAddresses ?? [])];
@@ -216,9 +235,25 @@ export function createPinnedUrlPolicy({ targetUrl, resolvedAddresses }) {
     }
 
     const candidateHost = normalizeHost(candidate.hostname);
+    const categoryPolicy = evaluateCategoryPolicy({
+      hostname: candidateHost,
+      policyBundle: categoryPolicyBundle,
+      phase: 'postNavigationPolicy'
+    });
+    if (categoryPolicy.blocked) {
+      return {
+        ok: false,
+        error: categoryPolicy.error
+      };
+    }
+
     if (candidateHost !== allowedHost) {
       if (net.isIP(candidateHost)) {
-        const literalPolicy = await evaluateUrlPolicy({ url: candidate.toString() });
+        const literalPolicy = await evaluateUrlPolicy({
+          url: candidate.toString(),
+          categoryPolicyBundle,
+          phase: 'postNavigationPolicy'
+        });
         if (!literalPolicy.ok) return literalPolicy;
       }
 

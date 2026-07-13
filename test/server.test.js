@@ -23,14 +23,21 @@ test('getListenConfig defaults to localhost and port 3080', () => {
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.port, 3080);
   assert.equal(config.artifactRoot, 'artifacts');
+  assert.equal(config.policyBundlePath, null);
 });
 
 test('getListenConfig allows explicit host, port, and artifact root overrides', () => {
-  const config = getListenConfig({ BROWSER_WORKER_HOST: '0.0.0.0', PORT: '3099', BROWSER_WORKER_ARTIFACT_ROOT: '/tmp/browser-artifacts' });
+  const config = getListenConfig({
+    BROWSER_WORKER_HOST: '0.0.0.0',
+    PORT: '3099',
+    BROWSER_WORKER_ARTIFACT_ROOT: '/tmp/browser-artifacts',
+    BROWSER_WORKER_POLICY_BUNDLE_PATH: '/srv/policy-bundle'
+  });
 
   assert.equal(config.host, '0.0.0.0');
   assert.equal(config.port, 3099);
   assert.equal(config.artifactRoot, '/tmp/browser-artifacts');
+  assert.equal(config.policyBundlePath, '/srv/policy-bundle');
 });
 
 test('POST /v1/browser/jobs returns structured envelope for invalid URL errors', async () => {
@@ -85,6 +92,50 @@ test('POST /v1/browser/jobs rejects private-network targets with structured priv
       throw new Error('capture should not run for blocked targets');
     }
   });
+
+  assert.equal(captureInvoked, false);
+});
+
+test('POST /v1/browser/jobs fails closed when a configured policy bundle cannot be loaded', async () => {
+  const artifactRoot = await mkdtemp(path.join(os.tmpdir(), 'browser-worker-policy-bundle-unavailable-'));
+  const missingBundlePath = path.join(artifactRoot, 'missing-policy-bundle');
+  let captureInvoked = false;
+
+  try {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/v1/browser/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com', action: 'capturePage' })
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 400);
+      assert.equal(body.ok, false);
+      assert.equal(body.status, 'blocked');
+      assert.equal(body.signals.blocked, true);
+      assert.equal(body.signals.policyBundleUnavailable, true);
+      assert.equal(body.errors[0].code, 'policy_bundle_unavailable');
+      assert.equal(body.errors[0].phase, 'admissionControl');
+      assert.equal(body.errors[0].retryable, false);
+      assert.equal(body.artifacts.directory, null);
+      assert.equal(body.artifacts.request, null);
+      assert.equal(body.artifacts.response, null);
+      assert.equal(body.artifacts.screenshot, null);
+      assert.equal(body.artifacts.html, null);
+      assert.equal(body.artifacts.text, null);
+      assert.deepEqual(body.artifacts.downloads, []);
+    }, {
+      artifactRoot,
+      policyBundlePath: missingBundlePath,
+      capturePage: async () => {
+        captureInvoked = true;
+        throw new Error('capture should not run when the policy bundle is unavailable');
+      }
+    });
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
 
   assert.equal(captureInvoked, false);
 });
