@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createJobArtifacts, prepareJobArtifacts, writeJsonFile } from './artifacts.js';
 import { runIsolatedCapturePage, fileExists } from './browser-capture.js';
+import { loadCategoryPolicyBundle, makePolicyBundleUnavailableError } from './category-policy.js';
 import { createResponseEnvelope } from './response-envelope.js';
 import { createPinnedUrlPolicy, evaluateUrlPolicy } from './url-policy.js';
 
@@ -27,6 +28,31 @@ function writeJson(res, statusCode, body) {
     'content-length': Buffer.byteLength(payload)
   });
   res.end(payload);
+}
+
+async function writePolicyBundleUnavailableEnvelope(res, {
+  jobId,
+  startedAt,
+  requestedUrl,
+  requestSummary,
+  policyError
+}) {
+  const endedAt = nowIso();
+  const envelope = createResponseEnvelope({
+    ok: false,
+    jobId,
+    startedAt,
+    endedAt,
+    status: 'blocked',
+    request: requestSummary,
+    page: { requestedUrl, finalUrl: null },
+    signals: {
+      blocked: true,
+      policyBundleUnavailable: true
+    },
+    errors: [policyError]
+  });
+  return writeJson(res, 400, envelope);
 }
 
 function positiveInteger(value, fallback) {
@@ -155,21 +181,24 @@ async function writeBlockedPolicyEnvelope(res, {
 
   const normalizedPolicyError = normalizePostNavigationPolicyError(policyError);
   const blockedByPrivateNetwork = normalizedPolicyError.code === 'redirected_private_network_denied';
+  const blockedByCategory = normalizedPolicyError.code === 'category_policy_denied';
+  const blockedByPolicy = blockedByPrivateNetwork || blockedByCategory;
   const endedAt = nowIso();
   const envelope = createResponseEnvelope({
     ok: false,
     jobId,
     startedAt,
     endedAt,
-    status: blockedByPrivateNetwork ? 'blocked' : 'failed',
+    status: blockedByPolicy ? 'blocked' : 'failed',
     request: requestSummary,
     page: {
       requestedUrl,
       finalUrl: null
     },
     signals: {
-      blocked: blockedByPrivateNetwork,
-      privateNetworkDenied: blockedByPrivateNetwork
+      blocked: blockedByPolicy,
+      privateNetworkDenied: blockedByPrivateNetwork,
+      categoryPolicyDenied: blockedByCategory
     },
     artifacts: {
       directory: jobArtifacts.relative.directory,
@@ -178,7 +207,7 @@ async function writeBlockedPolicyEnvelope(res, {
       screenshot: null,
       html: null,
       text: null,
-      downloads: downloadArtifacts
+      downloads: []
     },
     events,
     warnings,
@@ -223,7 +252,9 @@ async function handleBrowserJob(req, res, {
   artifactRoot,
   capturePage,
   maxRequestBodyBytes,
-  jobTimeoutMs
+  jobTimeoutMs,
+  getCategoryPolicyBundle,
+  policyBundlePath = null
 }) {
   const jobId = makeJobId();
   const startedAt = nowIso();
@@ -254,20 +285,48 @@ async function handleBrowserJob(req, res, {
   const effectiveSessionMode = 'isolated';
   const requestedUrl = requestBody?.url ?? null;
   const requestSummary = { action: requestedAction, sessionMode: effectiveSessionMode };
-  const urlPolicy = await evaluateUrlPolicy({ url: requestedUrl });
+
+  let categoryPolicyBundleResult;
+  try {
+    categoryPolicyBundleResult = await getCategoryPolicyBundle();
+  } catch (error) {
+    categoryPolicyBundleResult = { ok: false, error };
+  }
+
+  if (!categoryPolicyBundleResult?.ok) {
+    return writePolicyBundleUnavailableEnvelope(res, {
+      jobId,
+      startedAt,
+      requestedUrl,
+      requestSummary,
+      policyError: makePolicyBundleUnavailableError({
+        path: policyBundlePath,
+        reason: categoryPolicyBundleResult?.error?.message ?? 'Unable to load configured category policy bundle.'
+      })
+    });
+  }
+
+  const categoryPolicyBundle = categoryPolicyBundleResult.bundle;
+  const urlPolicy = await evaluateUrlPolicy({
+    url: requestedUrl,
+    categoryPolicyBundle
+  });
   if (!urlPolicy.ok) {
     const endedAt = nowIso();
+    const blockedByPolicy = urlPolicy.error.code === 'private_network_denied'
+      || urlPolicy.error.code === 'category_policy_denied';
     return writeJson(res, 400, createResponseEnvelope({
       ok: false,
       jobId,
       startedAt,
       endedAt,
-      status: urlPolicy.error.code === 'private_network_denied' ? 'blocked' : 'failed',
+      status: blockedByPolicy ? 'blocked' : 'failed',
       request: requestSummary,
       page: { requestedUrl },
       signals: {
-        blocked: urlPolicy.error.code === 'private_network_denied',
-        privateNetworkDenied: urlPolicy.error.code === 'private_network_denied'
+        blocked: blockedByPolicy,
+        privateNetworkDenied: urlPolicy.error.code === 'private_network_denied',
+        categoryPolicyDenied: urlPolicy.error.code === 'category_policy_denied'
       },
       errors: [urlPolicy.error]
     }));
@@ -296,7 +355,8 @@ async function handleBrowserJob(req, res, {
 
   const pinnedPolicy = createPinnedUrlPolicy({
     targetUrl: urlPolicy.url.toString(),
-    resolvedAddresses: urlPolicy.resolvedAddresses
+    resolvedAddresses: urlPolicy.resolvedAddresses,
+    categoryPolicyBundle
   });
   const jobArtifacts = createJobArtifacts({ artifactRoot, jobId });
   await prepareJobArtifacts(jobArtifacts);
@@ -307,6 +367,7 @@ async function handleBrowserJob(req, res, {
     captureResult = await captureWithDeadline(capturePage, {
       targetUrl: urlPolicy.url.toString(),
       resolvedAddresses: urlPolicy.resolvedAddresses,
+      categoryPolicyBundle,
       screenshotPath: jobArtifacts.absolute.screenshot,
       htmlPath: jobArtifacts.absolute.html,
       textPath: jobArtifacts.absolute.text,
@@ -478,12 +539,22 @@ export function createServer(options = {}) {
     maxRequestBodyBytes: DEFAULT_MAX_REQUEST_BODY_BYTES,
     jobTimeoutMs: DEFAULT_JOB_TIMEOUT_MS,
     maxConcurrentJobs: DEFAULT_MAX_CONCURRENT_JOBS,
+    policyBundle: null,
+    policyBundlePath: null,
     ...options
   };
   config.maxRequestBodyBytes = positiveInteger(config.maxRequestBodyBytes, DEFAULT_MAX_REQUEST_BODY_BYTES);
   config.jobTimeoutMs = positiveInteger(config.jobTimeoutMs, DEFAULT_JOB_TIMEOUT_MS);
   config.maxConcurrentJobs = positiveInteger(config.maxConcurrentJobs, DEFAULT_MAX_CONCURRENT_JOBS);
   const gate = options.concurrencyGate ?? createConcurrencyGate(config.maxConcurrentJobs);
+  const categoryPolicyBundlePromise = config.policyBundle
+    ? Promise.resolve({ ok: true, bundle: config.policyBundle })
+    : config.policyBundlePath
+      ? Promise.resolve()
+        .then(() => loadCategoryPolicyBundle(config.policyBundlePath))
+        .then((bundle) => ({ ok: true, bundle }))
+        .catch((error) => ({ ok: false, error }))
+      : Promise.resolve({ ok: true, bundle: null });
 
   return http.createServer(async (req, res) => {
     try {
@@ -500,7 +571,10 @@ export function createServer(options = {}) {
         const release = gate.tryAcquire();
         if (!release) return writeWorkerBusy(res, gate);
         try {
-          return await handleBrowserJob(req, res, config);
+          return await handleBrowserJob(req, res, {
+            ...config,
+            getCategoryPolicyBundle: () => categoryPolicyBundlePromise
+          });
         } finally {
           release();
         }
@@ -517,7 +591,8 @@ export function getListenConfig(env = process.env) {
   return {
     port: Number(env.PORT ?? 3080),
     host: env.BROWSER_WORKER_HOST ?? '127.0.0.1',
-    artifactRoot: env.BROWSER_WORKER_ARTIFACT_ROOT ?? 'artifacts'
+    artifactRoot: env.BROWSER_WORKER_ARTIFACT_ROOT ?? 'artifacts',
+    policyBundlePath: env.BROWSER_WORKER_POLICY_BUNDLE_PATH ?? null
   };
 }
 
@@ -530,8 +605,8 @@ export function getRuntimeLimits(env = process.env) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { port, host, artifactRoot } = getListenConfig();
-  createServer({ artifactRoot, ...getRuntimeLimits() }).listen(port, host, () => {
+  const { port, host, artifactRoot, policyBundlePath } = getListenConfig();
+  createServer({ artifactRoot, policyBundlePath, ...getRuntimeLimits() }).listen(port, host, () => {
     console.log(`browser-worker listening on ${host}:${port}`);
   });
 }

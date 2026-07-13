@@ -96,6 +96,7 @@ function pushWarningOnce(warnings, warning) {
 export async function runIsolatedCapturePage({
   targetUrl,
   resolvedAddresses,
+  categoryPolicyBundle = null,
   screenshotPath,
   htmlPath,
   textPath,
@@ -110,7 +111,11 @@ export async function runIsolatedCapturePage({
   const hostResolverRules = resolvedAddresses?.length
     ? buildHostResolverRules({ targetUrl, resolvedAddresses })
     : 'MAP * ~NOTFOUND';
-  const pinnedPolicy = evaluatePolicy ?? createPinnedUrlPolicy({ targetUrl, resolvedAddresses });
+  const pinnedPolicy = evaluatePolicy ?? createPinnedUrlPolicy({
+    targetUrl,
+    resolvedAddresses,
+    categoryPolicyBundle
+  });
   let browser;
   let context;
   let page;
